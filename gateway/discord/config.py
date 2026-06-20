@@ -11,6 +11,8 @@ def _parse_ids(raw: str) -> list[int]:
 HOME = Path.home()
 DISCORD_TOKEN = os.environ.get("DISCORD_TOKEN", "").strip()
 ALLOWED_USER_IDS: list[int] = _parse_ids(os.environ.get("ALLOWED_USER_IDS", ""))
+# 「指定チャンネルの全メッセージにも反応」モード用。空なら DM/Thread/@mention のみ。
+INPUT_CHANNEL_IDS: list[int] = _parse_ids(os.environ.get("INPUT_CHANNEL_IDS", ""))
 TIMEOUT_SEC = int(os.environ.get("HERMES_DISCORD_TIMEOUT_SEC", "300"))
 CLAUDE_BIN = os.environ.get("CLAUDE_BIN", str(HOME / ".local" / "bin" / "claude"))
 

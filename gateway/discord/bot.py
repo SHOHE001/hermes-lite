@@ -8,7 +8,13 @@ from collections import defaultdict
 import discord
 
 import claude_runner
-from config import ALLOWED_USER_IDS, DISCORD_TOKEN, MAX_DISCORD_MESSAGE, SESSIONS_DB
+from config import (
+    ALLOWED_USER_IDS,
+    DISCORD_TOKEN,
+    INPUT_CHANNEL_IDS,
+    MAX_DISCORD_MESSAGE,
+    SESSIONS_DB,
+)
 from session_store import SessionStore
 
 logging.basicConfig(
@@ -32,6 +38,9 @@ def _scope_key(message: discord.Message) -> str | None:
         return f"dm:{message.author.id}"
     if isinstance(message.channel, discord.Thread):
         return f"thread:{message.channel.id}"
+    if message.channel.id in INPUT_CHANNEL_IDS:
+        # 指定チャンネル全メッセージモード。channel 単位で session を継続。
+        return f"channel:{message.channel.id}"
     return None
 
 
@@ -43,6 +52,8 @@ def _should_react(message: discord.Message) -> bool:
     if isinstance(message.channel, discord.DMChannel):
         return True
     if isinstance(message.channel, discord.Thread):
+        return True
+    if message.channel.id in INPUT_CHANNEL_IDS:
         return True
     return client.user is not None and client.user in message.mentions
 
