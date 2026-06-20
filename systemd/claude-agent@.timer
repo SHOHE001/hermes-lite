@@ -1,0 +1,12 @@
+[Unit]
+Description=Claude agent timer: %i
+
+[Timer]
+# 既定はスケジュールなし。ジョブごとに drop-in
+#   ~/.config/systemd/user/claude-agent@<name>.timer.d/schedule.conf
+# で OnCalendar= を上書きする。
+Persistent=true
+Unit=claude-agent@%i.service
+
+[Install]
+WantedBy=timers.target

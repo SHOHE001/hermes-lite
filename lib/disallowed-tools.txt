@@ -1,0 +1,25 @@
+# claude -p 実行時にデフォルトで禁止するツール一覧
+# - 1 行 1 ツール（先頭が # の行・空行はコメント扱い）
+# - ジョブの job.env の ALLOWED_TOOLS に同じものを書くと、そのジョブだけ解禁できる
+# - claude-watch/server.py の DISALLOWED_TOOLS と整合
+# - CLAUDE.md「送信系操作の事前確認ルール」「Cron 操作のルール」と整合
+
+# --- 送信・通知系（外部に何かが飛ぶもの） ---
+# Slack 送信系はしょうへい専用ワークスペースなのでデフォルト許可（disallow しない）
+mcp__claude_ai_Gmail__create_draft
+mcp__claude_ai_Google_Calendar__create_event
+mcp__claude_ai_Google_Calendar__update_event
+mcp__claude_ai_Google_Calendar__respond_to_event
+mcp__claude_ai_Notion__notion-create-comment
+mcp__claude_ai_Notion__notion-create-pages
+mcp__claude_ai_Notion__notion-update-page
+
+# --- 永続実行・課金リスク ---
+CronCreate
+CronDelete
+
+# --- 破壊的シェル操作 ---
+Bash(rm *)
+Bash(sudo *)
+Bash(git push*)
+Bash(git reset*)

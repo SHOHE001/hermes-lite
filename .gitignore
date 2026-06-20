@@ -19,3 +19,6 @@ venv/
 **/state/curator_state.json
 **/state/*.log
 **/state/on-stop.log
+
+# ジョブ実行ログ・コスト（bin/run-claude.sh 出力、ローカル限定）
+logs/

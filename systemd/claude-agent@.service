@@ -1,0 +1,12 @@
+[Unit]
+Description=Claude agent job: %i
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/hermes-lite/bin/run-claude.sh %i
+# Hardening（既存 claude-watch.service と同等）
+ProtectSystem=full
+PrivateTmp=true
+NoNewPrivileges=true
