@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# venv
+.venv/
+venv/
+
+# 機密
+.env
+.token
+*.key
+
+# 自動生成データ / ログ / 状態
+**/sessions.sqlite*
+**/.usage.json
+**/state/runs/
+**/state/curator_state.json
+**/state/*.log
+**/state/on-stop.log

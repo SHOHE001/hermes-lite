@@ -1,0 +1,20 @@
+[Unit]
+Description=hermes-lite Discord gateway (Discord -> claude -p)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/hermes-lite/gateway/discord
+ExecStart=%h/hermes-lite/gateway/discord/.venv/bin/python %h/hermes-lite/gateway/discord/bot.py
+EnvironmentFile=%h/hermes-lite/gateway/discord/.env
+Environment=PATH=%h/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Restart=on-failure
+RestartSec=5
+# Hardening
+ProtectSystem=full
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

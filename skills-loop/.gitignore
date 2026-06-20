@@ -1,0 +1,5 @@
+state/runs/
+state/curator_state.json
+state/*.log
+__pycache__/
+*.pyc
