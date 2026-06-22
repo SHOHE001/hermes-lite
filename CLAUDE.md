@@ -42,6 +42,7 @@ Hermes 本家を Anthropic OAuth (Claude Pro/Max) で動かしても、Anthropic
 
 ## ディレクトリ
 
+- `.claude/agents/hermes.md` — このプロジェクトの常駐サブエージェント定義。cwd が `~/hermes-lite` のときに自動でロードされる
 - `gateway/discord/` — Discord bot (discord.py, sqlite, systemd unit テンプレ)。**稼働中** (`docs/discord-setup.md`)
 - `gateway/` 配下の他 (Telegram/Slack 等) — 未着手
 - `skills-loop/` — **Skill 自動生成ループ + Curator。常駐済** (`docs/skill-loop-setup.md`)
