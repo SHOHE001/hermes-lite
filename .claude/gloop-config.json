@@ -1,6 +1,7 @@
 {
   "namespace": "gloop",
   "repo_name": "hermes-lite",
+  "project_type": "jobs",
   "roadmap_path": "ROADMAP.md",
   "milestone_prefix": "Phase ",
   "branch_prefix": "gloop/",
