@@ -20,7 +20,8 @@
       "standard": 5,
       "heavy": 10
     },
-    "max_codex_loops": 5
+    "max_codex_loops": 5,
+    "ask_user_on_blocking": false
   },
   "loop_intervals": {
     "watcher_poll_seconds": 10,
