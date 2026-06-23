@@ -105,6 +105,20 @@ Discord bot に「毎朝7時に天気を流して」のように頼めば、bot 
 - `logs/<ジョブ名>/cost.csv` — `timestamp,exit_code,is_error,usd,input_tokens,output_tokens`
 - `journalctl --user -u claude-agent@<ジョブ名>.service` — systemd 側
 
+## gloop 連携（dev clone のみ）
+
+このリポジトリは gloop ([~/プロジェクト/自律ループ/](../自律ループ/)) 経由の Issue 駆動開発に対応している。`.claude/gloop-config.json` と `ROADMAP.md` は main に乗せて管理するが、**`.claude/settings.json`（gloop の PreToolUse フック）は git 管理しない**。これは production ツリー（`~/hermes-lite/`、Discord bot 常駐先）が `git pull` した瞬間にフックが有効化されて、Discord 経由の `claude -p` が `jobs/**` や `gateway/**` への Write で guard に弾かれて壊れることを防ぐため。
+
+dev clone として使うときだけ、ローカルにセットアップする:
+
+```bash
+cp .claude/settings.json.example .claude/settings.json
+# tmux + claude --dangerously-skip-permissions
+# /gloop-intake で Issue 起票 → /gloop で消化
+```
+
+production ツリー (`~/hermes-lite/`) では **このコピー作業をしない**こと。`.gitignore` で `.claude/settings.json` と `.claude/settings.local.json` を除外しているので、誤って commit されることはない。
+
 ## 出典・ライセンス
 
 - ライセンス: [MIT](LICENSE)

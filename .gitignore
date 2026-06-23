@@ -22,3 +22,14 @@ venv/
 
 # ジョブ実行ログ・コスト（bin/run-claude.sh 出力、ローカル限定）
 logs/
+
+# gloop
+features/.loop/last-cycle-marker
+features/.loop/*.pid
+features/.batch/lock
+
+# Claude Code settings (gloop の hook が production 側 ~/hermes-lite/ に流れて
+# Discord bot の claude -p を guard で詰まらせるのを防ぐため、settings.json は
+# git 管理せず settings.json.example を雛形に各 clone がローカルで配置する)
+.claude/settings.json
+.claude/settings.local.json
