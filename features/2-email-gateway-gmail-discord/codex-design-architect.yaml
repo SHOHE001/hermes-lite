@@ -1,0 +1,62 @@
+verdict: fail
+blocking: 3
+persona: architect
+summary: |
+  thread 単位への統一と wrapper 通知への寄せ方は方向性としては整っていますが、既存 wrapper の責務境界とログ/通知データフローに対する前提が未検証のまま設計に埋め込まれています。特に MAX_TURNS、ラベル変更先行時の回復根拠、disallowed-tools の扱いは、既存システムとの整合性を確認しないまま成立条件にしており、このまま implementer に渡すと Phase 1 の運用保証が崩れます。
+findings:
+  - severity: high
+    title: "MAX_TURNS=30 が設計内の操作数見積もりと矛盾している"
+    detail: |
+      設計方針で list_labels 1 + search 1 + 10 thread × 3 + 整形 1 ≒ 33 ターンと自ら見積もっているにもかかわらず、初期値を 30 にしています。architect 観点では、ジョブ境界である `job.env` の実行制約が、prompt の処理上限 10 thread と衝突しています。『claude は複数操作を 1 ターンにまとめる場合もある』は未検証の実行時挙動への依存であり、10 thread 処理を受け入れ基準にしている設計の前提として弱すぎます。
+    suggestion: |
+      10 thread を必ず処理する設計なら、見積もりを上回る `MAX_TURNS` を `job.env` に設定してください。少なくとも 40 以上にするか、ターン数の定義と実測ログを根拠として 30 で足りることを明記してください。
+    file: "plan.md"
+    line: 144
+  - severity: high
+    title: "ラベル変更先行の回復手段が既存ログの実データフローに依存しているが未設計"
+    detail: |
+      『通知漏れは `logs/mail-watch/<ts>.json` に最終応答が残るため発見・回復可能』としていますが、フロー上はラベル変更後に通知本文を整形して最終応答テキストを返す設計です。通知本文生成または wrapper 側の result 抽出で失敗した場合、done ラベルだけが付いて、回復に必要な `{差出人, 件名, 1行要約}` がログに残る保証がありません。既存 `bin/run-claude.sh` のログ構造・result 保存タイミングを設計根拠にしていないため、ラベル状態と通知/ログ状態のデータフローが不整合です。
+    suggestion: |
+      ラベル変更前に通知候補リストを構造化してログへ残す、または `processing` ラベルなどの中間状態を使う設計にしてください。Phase 1 で通知漏れを許容するなら、少なくとも『どのログにどの時点で thread ID と通知本文が永続化されるか』を既存 wrapper の仕様名込みで明記してください。
+    file: "plan.md"
+    line: 110
+  - severity: high
+    title: "`disallowed-tools` を変更しない方針と T06/受け入れ基準が責務境界として衝突している"
+    detail: |
+      In-Scope では `lib/disallowed-tools.txt` を Out-of-Scope にし、『変更しない』にも再掲しています。一方で T06 と受け入れ基準では `mcp__claude_ai_Google_Calendar__create_event` が `--disallowed-tools` に含まれることを要求しています。既存ファイルにそのエントリがない場合、この設計は実装対象外のファイル変更を必要とします。既に含まれている前提なら、plan はその既存仕様を確認した根拠を示す必要があります。
+    suggestion: |
+      `lib/disallowed-tools.txt` の現状確認を設計前提として明記してください。未登録なら Out-of-Scope を修正して当該ファイルの更新を In-Scope に入れるか、T06/受け入れ基準から Calendar 固有の要求を外してください。
+    file: "plan.md"
+    line: 216
+  - severity: medium
+    title: "`.env` の `set -a` 変更が全ジョブに及ぶのに環境変数の衝突設計がない"
+    detail: |
+      `set -a; source .env` は `.env` 内のすべてのシェル変数を subprocess に流すため、`claude` 実行環境の暗黙入力が増えます。『export 付き .env の上位互換』という説明は構文互換の話に留まり、既存ジョブが export されていないローカル変数に依存していた場合の依存方向変更を評価していません。
+    suggestion: |
+      `.env` で許可するキーを列挙するか、`DISCORD_WEBHOOK_URL` など必要なキーのみ `export` する helper に寄せる設計を検討してください。少なくとも既存 `.env` の想定キーと全ジョブ影響を docs に明記してください。
+    file: "plan.md"
+    line: 42
+  - severity: medium
+    title: "Gmail ラベル ID 取得失敗時の境界が prompt と docs のどちらの責務か曖昧"
+    detail: |
+      フローでは `list_labels` で `hermes-lite` と `hermes-lite/done` の ID を取得するとありますが、ラベル未作成時の通常経路は T08 のエラー試験に押し込まれています。セットアップ docs でラベル事前作成を受け入れ基準にしている一方、prompt の挙動として『存在しない場合は作成せず FAIL』なのか『明示エラー文を返す』のかが未定義です。
+    suggestion: |
+      prompt.md に、必要ラベルが見つからない場合はラベル作成を試みず非ゼロ/エラーとして終了する、などの明確な指示を入れてください。docs 側にも事前作成が必須であることを同じ用語で合わせてください。
+    file: "plan.md"
+    line: 89
+  - severity: medium
+    title: "『古い順』のソート根拠が Gmail MCP の API 境界に結び付いていない"
+    detail: |
+      件数上限では『先頭 10 件のみ処理』、全体フローでは『最大 10 thread を選び（古い順）』とありますが、`search_threads` の返却順が古い順である根拠が示されていません。prompt 側で取得結果を timestamp でソートできるのか、API が返す順序に依存するのかでモジュール境界が変わります。
+    suggestion: |
+      `search_threads` または `get_thread` から取得できる日時フィールドを使って昇順ソートする、と明記してください。API が順序保証するなら、その前提を設計に書いてください。
+    file: "plan.md"
+    line: 100
+  - severity: medium
+    title: "`[NOOP]` が job の共通 result プロトコルに追加されるのに名前空間がない"
+    detail: |
+      `bin/run-claude.sh` の `[NOOP]` 判定は全 job に影響します。将来または既存ジョブが実データとして `[NOOP]` を返す場合に通知が抑止されます。wrapper 共通プロトコルを拡張する設計なのに、mail-watch 固有の出力規約としてしか説明されていません。
+    suggestion: |
+      共通 wrapper の result sentinel として明文化するか、`NO_NOTIFY_RESULT=1` のような job.env 制御に寄せてください。少なくとも完全一致・空白 trim の扱いを before/after に含めてください。
+    file: "plan.md"
+    line: 131

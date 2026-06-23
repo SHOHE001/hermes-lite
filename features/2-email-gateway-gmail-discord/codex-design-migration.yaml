@@ -1,0 +1,41 @@
+verdict: fail
+blocking: 3
+persona: migration
+summary: |
+  rev2 は mail-watch 単体の設計としては整理されていますが、共有 wrapper である `bin/run-claude.sh` の既存契約を変える点に対する移行設計が不足しています。特に空 result の扱い、既存ジョブの棚卸し、thread ラベル操作の既存データへの影響が未解決です。
+findings:
+  - severity: high
+    title: "空 result の通知スキップが全ジョブの既存挙動を破壊する"
+    detail: |
+      plan は `notify_discord "[$JOB_NAME] ${RESULT_TEXT:-(no result text)}"` を、空文字または `[NOOP]` なら投稿しない挙動へ変更している。これは `mail-watch` だけでなく `bin/run-claude.sh` を使う全ジョブの public behavior 変更であり、既存ジョブが空 result を異常・確認対象として Discord に出していた場合に通知が消える。plan は ping のみを回帰確認しており、他の `NOTIFY_RESULT=1` ジョブの棚卸しや移行条件がない。
+    suggestion: |
+      スキップを `mail-watch` の `job.env` だけで有効化する opt-in 変数、例 `SUPPRESS_EMPTY_RESULT=1` / `NOOP_RESULT_MARKER=[NOOP]` に分離する。全既存ジョブの `NOTIFY_RESULT` 設定を列挙し、空 result 時の期待挙動をテストに追加する。
+    file: "plan.md"
+  - severity: high
+    title: "thread 単位ラベル変更が既存の message 単位運用と非互換になり得る"
+    detail: |
+      `search_threads label:hermes-lite is:unread` で拾った thread に対して `unlabel_thread(hermes-lite) → label_thread(hermes-lite/done)` を実行すると、thread 内の全 message から `hermes-lite` が外れる設計になっている。既存運用で message 単位に `hermes-lite` が付いている場合、同一 thread 内の未処理メッセージや既読だが未移行のメッセージまで一括で done 扱いになる可能性がある。plan は「thread 内全 message に done」と明記するだけで、既存データ形式からの移行影響や検出手順を示していない。
+    suggestion: |
+      既存ラベルが thread 単位で付与済みであることを前提条件に明記し、そうでないデータを検出する手順を docs/test に追加する。互換性を重視するなら message 単位 API を使うか、thread 内の対象 message を列挙して未処理 message が残らないことを確認してから thread label を変更する。
+    file: "plan.md"
+  - severity: high
+    title: "`hermes-lite/done` 未作成時の扱いが受け入れ基準と運用設計で矛盾している"
+    detail: |
+      T08 は `hermes-lite/done` ラベルが未作成なら失敗して FAIL 通知されることを期待している。一方で受け入れ基準は docs にラベル事前作成手順を含めるだけで、初回導入時に既存環境へ安全に移行するための事前検証や fail-fast 条件がない。結果として、既存 `hermes-lite` 未読 thread がある環境で初回実行すると、取得や要約までは進んだ後にラベル操作で失敗し、既存メールの一部処理状態やログの解釈が曖昧になる。
+    suggestion: |
+      実行開始直後の `list_labels` で `hermes-lite` と `hermes-lite/done` の存在を必須検証し、不足時は thread 取得やラベル変更を一切せずに失敗する、と明記する。T08 の期待値も「ラベル変更なし」「通知本文なし」「FAIL のみ」に具体化する。
+    file: "plan.md"
+  - severity: medium
+    title: "MAX_TURNS の初期値が計算上不足しており移行試走が不安定"
+    detail: |
+      設計自身が `list_labels 1 + search 1 + 10 thread × 3 + 整形 1 ≒ 33` と見積もっているにもかかわらず `MAX_TURNS=30` で開始するとしている。既存ジョブ実行基盤に turn 上限が厳密に効く場合、10 thread の正常系 T04 が設計値の時点で失敗し得る。
+    suggestion: |
+      初期値を見積もり以上、例 `MAX_TURNS=40` にする。あるいは 10 thread 処理が 30 turn 内に収まる根拠を実測ログ付きで示す。
+    file: "plan.md"
+  - severity: medium
+    title: "`.env` の `set -a` 化に対する回帰範囲が狭い"
+    detail: |
+      `set -a; source .env; set +a` は既存の未 export 変数を subprocess に渡す点では互換的だが、共有 wrapper の環境伝播範囲を広げる変更でもある。既存 `.env` に job 内部だけで使うつもりの変数がある場合、claude subprocess や通知処理へ見えるようになる。plan は `DISCORD_WEBHOOK_URL` の確認だけで、既存 `.env` キーの棚卸しや漏えいリスクの確認を含めていない。
+    suggestion: |
+      `.env` の既存キーを確認し、export されても問題ない前提を docs に明記する。より保守的には `DISCORD_WEBHOOK_URL` など必要なキーだけを明示 export する実装にする。
+    file: "plan.md"

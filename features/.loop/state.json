@@ -1,0 +1,26 @@
+{
+  "cycle": 2,
+  "recent_cycles": [
+    {
+      "cycle": 1,
+      "started_at": "2026-06-23T06:58:25.507Z",
+      "ended_at": "2026-06-23T06:58:25.507Z",
+      "closed": [],
+      "merged_commits": 0,
+      "pause_reason": "no open issues"
+    },
+    {
+      "cycle": 2,
+      "started_at": "2026-06-23T07:45:37.811Z",
+      "ended_at": "2026-06-23T07:45:37.812Z",
+      "closed": [],
+      "merged_commits": 0,
+      "pause_reason": "depends-on #1 (gate:design) unresolved — #2 implementation blocked"
+    }
+  ],
+  "cumulative": {
+    "cycles": 2,
+    "closed_issues": 0,
+    "failures": 0
+  }
+}

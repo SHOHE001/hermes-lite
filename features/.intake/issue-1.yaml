@@ -1,0 +1,5 @@
+issue: 1
+stages:
+- stage: created
+  at: 2026-06-23T07:39:59.709Z
+  data: {"labels":"type:docs,batch:fixes,gate:design","phase":"1","title":"gate:design — mail-watch ジョブの設計論点詰め"}

@@ -18,6 +18,7 @@
 #   MODEL            ... 既定 DEFAULT_MODEL
 #   NOTIFY_RESULT    ... 1 にすると正常終了時に result を Discord 投稿
 #   NOTIFY_ON_ERROR  ... 1 にすると失敗時に概要を Discord 投稿（既定 1）
+#   SUPPRESS_RESULT_IF ... 最終応答が完全一致したら Discord 投稿をスキップ（opt-in）
 #
 # ラッパー自体は失敗しても exit 0 で抜ける（systemd timer の連鎖を壊さないため）。
 
@@ -49,8 +50,12 @@ fi
 mkdir -p "$LOG_DIR"
 
 # --- 共通設定読み込み ---
+# set -a で .env 内の `KEY=value`（export 無し）も自動 export し、
+# claude subprocess に環境変数として承継させる。
 # shellcheck disable=SC1091
+set -a
 source "$HERMES_HOME/.env"
+set +a
 # shellcheck disable=SC1091
 source "$HERMES_HOME/lib/notify.sh"
 
@@ -62,6 +67,9 @@ MAX_TURNS="$DEFAULT_MAX_TURNS"
 TIMEOUT_SEC="$DEFAULT_TIMEOUT_SEC"
 MAX_BUDGET_USD="$DEFAULT_MAX_BUDGET_USD"
 MODEL="$DEFAULT_MODEL"
+# 最終応答が完全一致したら Discord 投稿をスキップしたいジョブ向け（opt-in）。
+# 例: mail-watch は 0 件時に "[NOOP]" を返すので、job.env で SUPPRESS_RESULT_IF="[NOOP]" を設定する。
+SUPPRESS_RESULT_IF=""
 
 if [[ -f "$JOB_ENV" ]]; then
   # shellcheck disable=SC1090
@@ -144,16 +152,30 @@ fi
 echo "$TS,$EXIT_CODE,${IS_ERROR:-},${COST_USD:-},${INPUT_TOKENS:-},${OUTPUT_TOKENS:-}" >> "$COST_CSV"
 
 # --- 通知 ---
-if [[ "$EXIT_CODE" -eq 0 && "$IS_ERROR" != "true" ]]; then
+# RESULT_TEXT が "ERROR:" で始まる場合は claude プロセス自体は正常終了でも
+# 失敗扱いにする (例: prompt 側の fail-fast でラベル不在等)。
+if [[ "$EXIT_CODE" -eq 0 && "$IS_ERROR" != "true" && "$RESULT_TEXT" != ERROR:* ]]; then
   echo "[run-claude] OK exit=0 cost=${COST_USD:-?} in=${INPUT_TOKENS:-?} out=${OUTPUT_TOKENS:-?}" >&2
   if [[ "$NOTIFY_RESULT" == "1" ]]; then
-    notify_discord "[$JOB_NAME] ${RESULT_TEXT:-(no result text)}"
+    if [[ -n "${SUPPRESS_RESULT_IF:-}" && "$RESULT_TEXT" == "$SUPPRESS_RESULT_IF" ]]; then
+      echo "[run-claude] result matched SUPPRESS_RESULT_IF — skipping Discord post" >&2
+    elif [[ -z "$RESULT_TEXT" ]]; then
+      notify_discord "[$JOB_NAME] (no result text)"
+    else
+      notify_discord "[$JOB_NAME] $RESULT_TEXT"
+    fi
   fi
 else
-  echo "[run-claude] FAIL exit=$EXIT_CODE is_error=${IS_ERROR:-?}" >&2
+  if [[ "$RESULT_TEXT" == ERROR:* && "$EXIT_CODE" -eq 0 && "$IS_ERROR" != "true" ]]; then
+    echo "[run-claude] FAIL via ERROR: prefix in result" >&2
+  else
+    echo "[run-claude] FAIL exit=$EXIT_CODE is_error=${IS_ERROR:-?}" >&2
+  fi
   if [[ "$NOTIFY_ON_ERROR" == "1" ]]; then
     ERR_SNIPPET=""
-    if [[ -s "$ERR_LOG" ]]; then
+    if [[ "$RESULT_TEXT" == ERROR:* ]]; then
+      ERR_SNIPPET="$RESULT_TEXT"
+    elif [[ -s "$ERR_LOG" ]]; then
       ERR_SNIPPET=$(tail -c 500 "$ERR_LOG")
     fi
     notify_discord "[$JOB_NAME] FAIL exit=$EXIT_CODE\n\`\`\`\n${ERR_SNIPPET:-(no stderr)}\n\`\`\`"

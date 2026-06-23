@@ -1,0 +1,29 @@
+{
+  "mode": "loop",
+  "batch_arg": null,
+  "batch_start_sha": "b271e6b69db0a0ce8bef7c1640ee994974aaca22",
+  "generated_at": "2026-06-23T07:50:24.797Z",
+  "issues": [
+    {
+      "number": 2,
+      "title": "Email gateway: Gmail ポーリングで未読メール検知 → Discord 通知",
+      "slug": "email-gateway-gmail-discord",
+      "labels": [
+        "type:feature",
+        "batch:feature"
+      ],
+      "milestone": "Phase 1",
+      "flow": "full",
+      "gate": "auto"
+    }
+  ],
+  "groups": [
+    {
+      "order": 1,
+      "deps": [],
+      "issues": [
+        2
+      ]
+    }
+  ]
+}

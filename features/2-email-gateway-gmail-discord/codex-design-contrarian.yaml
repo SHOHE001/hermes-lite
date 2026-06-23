@@ -1,0 +1,54 @@
+verdict: fail
+blocking: 2
+persona: contrarian
+summary: |
+  plan.md は rev2 で責務分離を改善しているが、Phase 1 としてはまだ過剰に LLM 実行へ依存し、かつ成功判定とラベル変更の原子性が弱い。特に MAX_TURNS の見積もり破綻と、通知漏れをログで回復できるという前提は設計成立性に影響するため blocking と判断する。
+findings:
+  - severity: high
+    title: "MAX_TURNS=30 が自分の見積もりより少なく、10件処理の正常系を満たせない"
+    detail: |
+      設計方針で `list_labels 1 + search 1 + 10 thread × 3 + 整形 1 ≒ 33 ターン想定` と書きながら、初期値を MAX_TURNS=30 にしている。これは T04_cap の受け入れ条件である 10 thread 処理を、設計上の見積もり時点で満たしていない。`claude は複数操作を 1 ターンにまとめる場合もある` は未検証の希望的前提で、Phase 1 の固定仕様にするには弱い。
+    suggestion: |
+      MAX_TURNS は少なくとも設計見積もりを上回る値にするか、処理上限を MAX_TURNS から逆算して 8 thread などに下げる。より単純には Gmail 操作を LLM に10件分実行させる設計をやめ、決定的なスクリプトで list/search/label を処理し、LLM は要約だけに限定する代替案の採否理由を明記する。
+    file: "plan.md"
+    line: 141
+  - severity: high
+    title: "ラベル変更先行で通知漏れを許容する設計なのに、回復可能性が成立していない"
+    detail: |
+      `通知漏れは logs/mail-watch/<ts>.json に最終応答が残るため発見・回復可能` としているが、通知本文の最終応答を返す前にラベル変更を全件実行するフローなので、ラベル変更後に要約整形・プロセス終了・ログ書き込み・wrapper抽出のいずれかで失敗すると、通知本文自体がログに残らない可能性がある。`done` へ移動済みのため次サイクルでも拾われず、設計がいう手動回復の根拠が崩れる。
+    suggestion: |
+      通知漏れ許容を続けるなら、ラベル変更前に対象 thread ID と通知予定本文を永続化する、または `processing` ラベルを導入する必要がある。もっと単純な代替案として、Phase 1 ではラベル変更を通知成功後に行い、重複通知は許容して手動で done に移す運用に寄せる案を検討し、その案を退ける理由を書く。
+    file: "plan.md"
+    line: 116
+  - severity: medium
+    title: "Non-Goals にしたはずの長文要約回避を LLM prompt 品質に丸投げしている"
+    detail: |
+      Non-Goals は `メール本文の長文要約（1 行要約に留める）` としているが、設計本文では get_thread で本文を取り、各 thread の 1行要約を抽出するとだけ書かれている。これは機能としては要約そのものであり、境界条件が曖昧なため Non-Goals と実装方針が衝突している。
+    suggestion: |
+      `1行要約` の最大文字数、対象範囲、本文が長い場合の切り捨て規則を prompt.md の仕様として固定する。要約が不要なら、件名と差出人だけにする単純案も明示的に比較する。
+    file: "plan.md"
+    line: 79
+  - severity: medium
+    title: "T08 はエラー条件として不安定で、期待する FAIL 経路を保証しない"
+    detail: |
+      `hermes-lite/done` ラベルがない状態で label_thread に失敗することを期待しているが、フローでは先に list_labels で ID 取得を行うため、実装次第では label_thread 以前に prompt が `[NOOP]` 的に諦める、ラベル作成を試みる、または通常応答に失敗文を返して exit_code 0 になる可能性がある。テストの期待値が wrapper のエラー経路を確実に踏む設計になっていない。
+    suggestion: |
+      エラー試験は Gmail MCP を到達不能にする、無効な認証情報にする、または claude が非ゼロ終了する明示的な失敗を使う。`done` ラベル欠落はセットアップ検証テストとして分離し、期待される exit_code と result 形式を固定する。
+    file: "plan.md"
+    line: 194
+  - severity: medium
+    title: "より単純な実装案を排除する理由がない"
+    detail: |
+      この設計は Gmail の検索、取得、ラベル変更、件数制御、順序制御、NOOP 制御まで LLM prompt に担わせている。Phase 1 の要件は未読検知と Discord 通知であり、決定的な小さなスクリプトで thread ID を列挙・ラベル変更し、LLM は任意の要約だけに使う方が失敗モードもテストも単純になる。contrarian 観点では、この plan は LLM エージェント化が目的化している疑いがある。
+    suggestion: |
+      Non-Goals または設計方針に、なぜ `mail-watch.sh`/Python 等の決定的ジョブではなく claude prompt 実行を採るのかを書く。少なくとも retry、部分失敗、対象IDの永続化を prompt 任せにしない縮小案を比較対象として追加する。
+    file: "plan.md"
+    line: 68
+  - severity: low
+    title: "before/after の `.env` 読み込みは `set -a` 復元を考慮していない"
+    detail: |
+      `set -a; source; set +a` は元から allexport が有効だったシェル状態を必ず無効化する。通常は問題になりにくいが、既存 wrapper の状態を保存しない変更としては雑である。
+    suggestion: |
+      `set -o | grep allexport` 等で元状態を保存して復元する、またはサブシェル内で env を組み立てる形にする。
+    file: "plan.md"
+    line: 157

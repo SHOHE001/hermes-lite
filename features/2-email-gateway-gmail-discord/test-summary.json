@@ -1,0 +1,7 @@
+{
+  "framework": "manual checklist (Hermes-lite has no automated test framework)",
+  "test_spec_file": "features/2-email-gateway-gmail-discord/test-spec.md",
+  "automated_tests": "none",
+  "manual_check_required": true,
+  "ping_regression": "bash -n bin/run-claude.sh passed; live run skipped because .env DEFAULT_* values are user-managed and not committed"
+}

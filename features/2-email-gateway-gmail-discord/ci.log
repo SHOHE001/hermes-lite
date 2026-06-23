@@ -1,0 +1,2 @@
+syntax: OK (bash -n bin/run-claude.sh passed)
+ping regression: skipped (user .env required)

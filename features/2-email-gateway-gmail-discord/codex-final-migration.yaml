@@ -1,0 +1,46 @@
+verdict: fail
+blocking: 3
+persona: migration
+summary: |
+  既存 wrapper の共有契約を変える箇所に opt-in/移行設計が不足しています。特に `ERROR:` prefix の全ジョブ失敗扱い、空 result 要件との不一致、thread 単位ラベル移行の非互換リスクが残っています。
+findings:
+  - severity: high
+    title: "`ERROR:` prefix を全ジョブの失敗判定にしたことで既存 result 契約を破壊し得る"
+    detail: |
+      `bin/run-claude.sh` は今回、`RESULT_TEXT` が `ERROR:` で始まるだけで FAIL 経路に入るよう変更されています。これは mail-watch のラベル欠落を FAIL 通知へ流すための実装ですが、共有 wrapper の public behavior 変更であり、既存ジョブが正常なレポート本文として `ERROR:` から始まるテキストを返していた場合、突然 `NOTIFY_RESULT` ではなく `NOTIFY_ON_ERROR` 扱いになります。既存ジョブの棚卸し、互換性説明、job 単位 opt-in がありません。
+    suggestion: |
+      `ERROR:` prefix 失敗扱いを `TREAT_ERROR_RESULT_AS_FAILURE=1` のような job.env opt-in にし、mail-watch だけで有効化してください。少なくとも既存 jobs の result 形式を列挙し、この変更で誤分類されないことを確認する移行メモとテストを追加してください。
+    file: "bin/run-claude.sh"
+    line: 155
+  - severity: high
+    title: "空 result スキップ要件が実装と文書で割れており、移行後の挙動が読めない"
+    detail: |
+      Additional context と plan の改修内容は `RESULT_TEXT` が空文字または `[NOOP]` のとき Discord 投稿をスキップするとしています。一方、実装は `SUPPRESS_RESULT_IF` に完全一致した場合だけスキップし、空 result は従来通り `(no result text)` を投稿します。既存互換性のために opt-in 化する判断自体は妥当ですが、要求仕様・plan・実装の契約が一致していないため、既存ジョブ利用者から見ると空 result の移行後挙動が不定です。
+    suggestion: |
+      互換性優先なら plan / test-spec / docs を `SUPPRESS_RESULT_IF` opt-in 仕様へ正式更新し、空 result は従来通り投稿されると明記してください。mail-watch で空 result も抑止したいなら `SUPPRESS_EMPTY_RESULT=1` を追加して mail-watch のみ有効化してください。
+    file: "bin/run-claude.sh"
+    line: 158
+  - severity: high
+    title: "thread 単位ラベル変更が既存 message 単位運用を一括 done 化する可能性が残っている"
+    detail: |
+      mail-watch は `search_threads label:hermes-lite is:unread` で拾った thread に対して `unlabel_thread` / `label_thread` を実行します。既存運用で thread 内の一部 message だけに `hermes-lite` が付いている、または同一 thread 内に未処理 message と既読の未移行 message が混在している場合、thread 全体が `hermes-lite/done` へ移動され、未処理対象が次サイクルで検出されなくなります。docs に thread レベル運用と書くだけでは、既存データからの移行時に破壊的な状態遷移を避けられません。
+    suggestion: |
+      初回導入前のチェックとして、`hermes-lite` ラベルが thread 単位で付いていることを確認する手順を docs/test に追加してください。互換性を重視するなら message 単位 API で対象 message のみを処理するか、thread 内の全対象 message を確認してから thread label を変更してください。
+    file: "jobs/mail-watch/prompt.md"
+    line: 54
+  - severity: medium
+    title: "受け入れ条件の 10 thread と実装の 5 thread が入力コンテキスト間で不一致"
+    detail: |
+      提示された Additional context は最大 10 thread を In-Scope としていますが、実装・docs・同梱 plan は最大 5 thread へ縮小されています。plan 側では rev2 の裁量変更として説明されていますが、外部の Issue 契約が 10 thread のまま残っているなら、移行後の処理容量が半減する仕様変更です。
+    suggestion: |
+      最終的な契約を 5 thread にするなら、Issue body / Additional context 相当の受け入れ条件まで更新済みであることを明示してください。10 thread が正なら prompt, job.env, docs, test-spec を戻してください。
+    file: "jobs/mail-watch/prompt.md"
+    line: 28
+  - severity: medium
+    title: "手動テストのみで wrapper 互換性の回帰確認が不足している"
+    detail: |
+      ci.log は `bash -n bin/run-claude.sh` のみで、ping regression も `.env` 必須のため skipped です。今回の主要変更は共有 wrapper の通知分岐と環境変数伝播なので、構文確認だけでは既存ジョブの通知経路や `ERROR:` 誤分類を検出できません。
+    suggestion: |
+      実 webhook を使わない形で `notify_discord` をスタブ化し、少なくとも通常 result、空 result、`[NOOP]`、`ERROR:` prefix、ping job の分岐をローカルで検証する軽量テストを追加してください。
+    file: "features/2-email-gateway-gmail-discord/ci.log"
+    line: 1

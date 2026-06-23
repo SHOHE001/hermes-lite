@@ -1,0 +1,46 @@
+verdict: fail
+blocking: 3
+persona: architect
+summary: |
+  wrapper 側の opt-in 化と prompt の最終応答順序修正は前進していますが、共有 wrapper の契約と Gmail ラベル状態遷移にまだ不整合があります。特に空 result 要件の未実装、ラベル変更の部分失敗で thread が処理対象から消える設計、Issue 契約の 10 thread と実装/plan の 5 thread の分岐は blocking です。
+findings:
+  - severity: high
+    title: "空 result スキップ要件が wrapper 実装から落ちている"
+    detail: |
+      plan.md と Additional context は `RESULT_TEXT` が空文字または `[NOOP]` のとき Discord 投稿をスキップする改修を要求しています。しかし実装は `SUPPRESS_RESULT_IF` 完全一致のみをスキップし、空文字の場合は `notify_discord "[$JOB_NAME] (no result text)"` を呼ぶため、要求された wrapper 契約を満たしていません。architect 観点では共有 wrapper の result プロトコルが文書と実装で分岐しており、mail-watch 以外の job も含めた責務境界が曖昧です。
+    suggestion: |
+      空 result も抑止するなら `SUPPRESS_EMPTY_RESULT=1` のような opt-in を追加して mail-watch で有効化してください。互換性優先で空 result 投稿を維持するなら、plan.md / test-spec / Additional context 相当の受け入れ条件を `SUPPRESS_RESULT_IF` のみへ正式に更新してください。
+    file: "bin/run-claude.sh"
+    line: 156
+  - severity: high
+    title: "ラベル変更が unlabel→label のため部分失敗で thread が監視対象から消える"
+    detail: |
+      prompt.md は各 thread について先に `unlabel_thread(hermes-lite)` を実行し、その後 `label_thread(hermes-lite/done)` を実行します。後段の label 付与だけが失敗した場合、thread は `hermes-lite` から外れ、`hermes-lite/done` にも入らず、次回の `label:hermes-lite is:unread` 検索にも引っかからない中間状態になります。これは Phase 1 が許容している「通知漏れ」と別種の状態喪失で、Gmail ラベルを状態管理に使うアーキテクチャの不変条件を壊します。
+    suggestion: |
+      部分失敗時に監視対象から消えないよう、`label_thread(hermes-lite/done)` 成功後に `unlabel_thread(hermes-lite)` を実行する順序に変更してください。少なくとも各 thread の ID と変更結果を最終応答または stderr に残す失敗時プロトコルを prompt に明記してください。
+    file: "jobs/mail-watch/prompt.md"
+    line: 53
+  - severity: high
+    title: "Issue 契約の最大10 threadから5 threadへ縮小した根拠が正式な契約に反映されていない"
+    detail: |
+      diff 内の features 側 plan は 5 thread に更新されていますが、ユーザーが提示した Additional context の In-Scope は依然として「1 Discord 投稿に最大 10 thread 集約」を要求しています。実装側の `jobs/mail-watch/prompt.md` / `job.env` / docs / test-spec はすべて 5 thread 前提で、受け入れ条件の処理容量を半減させています。rejection.md の裁量パッチだけでは、外部契約として渡された Issue scope を上書きした根拠として弱く、レビュー対象の仕様境界が二重化しています。
+    suggestion: |
+      このレビュー入力の In-Scope/受け入れ基準も含めて 5 thread へ正式改訂するか、実装を 10 thread に戻してください。5 thread を維持する場合は、Issue 本文・plan・test-spec・docs の全てで同じ上限を示し、MAX_TURNS との関係を明記してください。
+    file: "jobs/mail-watch/prompt.md"
+    line: 29
+  - severity: medium
+    title: "ERROR: prefix を全 job 共通の失敗プロトコルにしているが名前空間がない"
+    detail: |
+      run-claude.sh は `RESULT_TEXT` が `ERROR:` で始まるだけで FAIL 経路に流します。mail-watch の fail-fast には有効ですが、共有 wrapper の全 job に対して result 文字列の先頭を予約する API 変更になっています。既存または将来の job が正常な業務データとして `ERROR:` から始まる本文を返すと、誤って FAIL 通知になります。
+    suggestion: |
+      `RESULT_ERROR_PREFIX=ERROR:` のような job.env opt-in にするか、少なくとも wrapper 共通の result sentinel として docs に明記し、既存 job の出力と衝突しないことを確認してください。
+    file: "bin/run-claude.sh"
+    line: 155
+  - severity: medium
+    title: "通知漏れ時の回復説明がログの実態と矛盾している"
+    detail: |
+      prompt.md は「ラベル変更後・通知本文を返す前にプロセスが死ぬ場合」は通知本文がログに残らないと認めつつ、同じ文で `.result` または stderr で発見可能と説明しています。この失敗点では最終応答が存在しないため `.result` に通知対象が残る保証はなく、stderr に thread ID が出る設計もありません。運用 docs と prompt が障害解析の根拠を過大に見せています。
+    suggestion: |
+      ラベル変更前に処理対象 thread ID をログに出す設計にするか、docs/prompt から `.result` で回復可能という説明を削り、Gmail 上の `hermes-lite/done` を手動確認する運用として明確化してください。
+    file: "jobs/mail-watch/prompt.md"
+    line: 66

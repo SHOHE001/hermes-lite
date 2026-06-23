@@ -1,0 +1,5 @@
+issue: 2
+stages:
+- stage: created
+  at: 2026-06-23T07:39:59.794Z
+  data: {"labels":"type:feature,batch:feature","phase":"1","title":"Email gateway: mail-watch","depends_on":"#1"}

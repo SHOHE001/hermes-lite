@@ -1,0 +1,54 @@
+verdict: fail
+blocking: 4
+persona: contrarian
+summary: |
+  mail-watch の中核はまだ LLM prompt に状態遷移を任せすぎており、失敗時の復旧不能ケースが残っています。特にラベル付け替え順序と wrapper の ERROR 扱いは、見かけ上 FAIL 通知を出しても実際のログ・Gmail 状態を安全に保てません。
+findings:
+  - severity: high
+    title: "ラベル付け替えが unlabel→label の順で、label 失敗時に対象 thread が監視対象から消える"
+    detail: |
+      prompt.md の手順 6 は各 thread に対して先に `unlabel_thread(hermes-lite)` を実行し、その後 `label_thread(hermes-lite/done)` を実行する指示になっています。後段の label が失敗すると、その thread は `hermes-lite` を失い `hermes-lite/done` も付かない中途半端な状態になります。検索条件は `label:hermes-lite is:unread` なので次サイクルでも拾われず、通知漏れどころか手動発見もしにくい状態遷移です。
+    suggestion: |
+      順序を `label_thread(hermes-lite/done)` → `unlabel_thread(hermes-lite)` に変更してください。さらに unlabel 失敗時は done と original の両方が付く状態を許容し、次回または手動確認で回復できるようにする方が Phase 1 として単純です。
+    file: "jobs/mail-watch/prompt.md"
+    line: 54
+  - severity: high
+    title: "ERROR prefix を FAIL 通知に回すだけで、実行ログ上は成功のまま残る"
+    detail: |
+      run-claude.sh は `RESULT_TEXT != ERROR:*` を正常条件に追加して通知分岐だけ FAIL 側へ流していますが、その直前で cost CSV や JSON ログは既に `EXIT_CODE=0` / `IS_ERROR=false` の値で記録済みです。つまり T08 のようなラベル欠落は Discord では FAIL に見えても、後からログを集計すると正常終了として扱われます。これは障害検知・再実行判断の根拠を壊します。
+    suggestion: |
+      RESULT_TEXT を抽出した直後、ログや cost CSV を書く前に `ERROR:` prefix を正規の失敗状態へ正規化してください。少なくとも `IS_ERROR=true` 相当の派生フィールドをログへ保存し、通知分岐だけの特殊扱いにしないでください。
+    file: "bin/run-claude.sh"
+    line: 152
+  - severity: high
+    title: "空 result スキップ要件が opt-in 実装から漏れている"
+    detail: |
+      plan / Additional context は `RESULT_TEXT` が空文字または `[NOOP]` のとき Discord 投稿をスキップする改修を要求しています。しかし実装は `SUPPRESS_RESULT_IF` の完全一致だけを抑止し、空文字の場合は従来通り `[$JOB_NAME] (no result text)` を投稿します。mail-watch の job.env も `[NOOP]` だけを指定しているため、モデルが空応答を返す退化ケースでは不要な Discord 投稿が残ります。
+    suggestion: |
+      互換性を守るなら `SUPPRESS_EMPTY_RESULT=1` のような opt-in を追加し、mail-watch で有効化してください。あるいは plan/test/docs を明示的に「空 result は投稿する」仕様へ変更する必要があります。
+    file: "bin/run-claude.sh"
+    line: 158
+  - severity: high
+    title: "LLM prompt に検索・ソート・状態更新・要約を全て委ねており、Phase 1 として過剰"
+    detail: |
+      この実装は Gmail thread の列挙、全件 get_thread、internalDate ソート、5件制限、ラベル更新、通知本文生成までを prompt の自然言語手順に依存しています。単純なポーリング通知ジョブとしては失敗モードが多く、部分失敗時の対象 thread ID 永続化もありません。contrarian 観点では、決定的な小スクリプトで対象 ID とラベル更新を処理し、LLM は必要なら 1 行要約だけに限定する方が仕様もテストも大幅に簡単です。
+    suggestion: |
+      少なくとも対象 thread ID の列挙・上限適用・ラベル更新は deterministic な wrapper 側処理へ寄せる案を検討してください。MVP で prompt 実行を維持するなら、各処理対象 thread ID をラベル変更前にログへ残す仕組みを追加してください。
+    file: "jobs/mail-watch/prompt.md"
+    line: 24
+  - severity: medium
+    title: "通知漏れ回復の説明が実装された順序と矛盾している"
+    detail: |
+      prompt.md は『ラベル変更後・通知本文を返す前にプロセスが死ぬ場合』について、ログの `.result` または stderr で発見可能と書いています。しかしそのケースでは最終応答が返っていないため `.result` に通知本文は残らない可能性が高く、stderr に thread ID が出る保証もありません。
+    suggestion: |
+      回復可能性を主張するなら、ラベル変更前に処理対象 thread ID と通知予定本文を明示的にログへ出す設計にしてください。できないなら docs から『ログで発見可能』という強い表現を外してください。
+    file: "jobs/mail-watch/prompt.md"
+    line: 66
+  - severity: medium
+    title: "T06 は実行ログに存在しない可能性が高い文字列を grep している"
+    detail: |
+      test-spec は `bin/run-claude.sh mail-watch 2>&1 | grep -E "disallowed-tools.*Calendar"` を要求していますが、この diff の run-claude.sh 変更には claude 起動引数を stderr に出す処理がありません。結果として disallowed-tools が正しく渡っていてもテストが失敗する、または検証不能になります。
+    suggestion: |
+      run-claude.sh が実際に引数列を出す仕様を追加するか、T06 を `lib/disallowed-tools.txt` と run-claude.sh の静的確認に変更してください。
+    file: "features/2-email-gateway-gmail-discord/test-spec.md"
+    line: 77
