@@ -1,0 +1,48 @@
+verdict: fail
+blocking: 3
+persona: migration
+summary: |
+  後方互換・移行観点では、旧 `goals.md` の扱いと既存ジョブ実行環境への影響がまだ曖昧で、silent NOOP や広すぎる Bash 許可に落ちるリスクがあります。critical はありませんが、high が複数あるため pass にはできません。
+findings:
+  - severity: high
+    title: "旧 frontmatter 形式が silent NOOP になり得る"
+    detail: |
+      In-Scope では旧形式（先頭 `---` frontmatter、`最終 nudge 日:`）を除去/無視してパースするとしていますが、旧形式の目標データが frontmatter 側に `期限` や `状態` を持っていた場合、frontmatter を丸ごと削除すると目標情報が消え、active 0 件として `[NOOP]` になります。これは「積極エラーにしない」どころか既存データを黙って通知対象外にする移行破壊です。
+    suggestion: |
+      旧形式の具体例を plan に追加し、frontmatter 内に目標情報があった場合の期待挙動を明示してください。互換対応するなら legacy parser の最小ルールを定義し、対応しないなら docs とテストで「旧 frontmatter 内の目標データは通知されない」と明示し、手動移行手順を必須化してください。
+    file: "plan.md"
+  - severity: high
+    title: "`Bash(date:*)` 失敗時の `Read Bash` フォールバックが権限後退を起こす"
+    detail: |
+      T01_setup で `Bash(date:*)` が受理されない場合に `ALLOWED_TOOLS="Read Bash"` へ緩める案があります。`goals.md` は未信頼入力と明記されているため、これは既存の最小権限設計を壊し、プロンプトインジェクション時に任意 Bash 実行へ近づく後方互換上の安全性退行です。prompt 側の自然文制約は権限境界として扱えません。
+    suggestion: |
+      フォールバックを `Read Bash` にしないでください。`date` 取得を Bash なしで済ませる、runner 側から TODAY を渡す、または `Bash(date +%Y-%m-%d)` のように実際に受理される最小パターンを事前検証してから plan に固定してください。
+    file: "plan.md"
+  - severity: high
+    title: "絶対パス固定が既存チェックアウト・テスト環境を破壊する"
+    detail: |
+      `/home/shohei/プロジェクト/hermes-lite/goals.md` を prompt にハードコードする設計は、既存の `bin/run-claude.sh goals-nudge` 呼び出しを repo checkout location に依存しない形で動かせなくします。gen8 以外では書き換えが必要と docs に書く方針ですが、移行パスが手動編集のみで、別 checkout から実行した場合に現在の repo ではなく gen8 固定パスを読む危険があります。
+    suggestion: |
+      既存 runner を変えない前提でも、`job.env` に `GOALS_MD_PATH` を置いて prompt 生成時に埋め込む、または docs だけでなくテストで実行パスと読み取り対象が一致することを確認してください。少なくとも誤った固定パスを読んだ場合に検知できる手順を T01/T02 に追加してください。
+    file: "plan.md"
+  - severity: medium
+    title: "既存 `goals.md` がある場合の実装時挙動が矛盾している"
+    detail: |
+      In-Scope と docs 方針では既存 `goals.md` がある場合は上書きしないとしていますが、実装対象では新規 `goals.md` を追加するとだけ書かれています。実装者が単純にファイル追加/置換すると、既存ユーザーの目標ファイルを破壊する可能性があります。
+    suggestion: |
+      実装手順に「既存 `goals.md` がある場合は変更しない。雛形は `goals.md.example` などで追加する」または「repo に未存在であることを確認済み」と明記してください。
+    file: "plan.md"
+  - severity: medium
+    title: "旧形式互換のテストが frontmatter 内データ保持を検証していない"
+    detail: |
+      T07_boundary は frontmatter ブロック除去と `最終 nudge 日:` 無視だけを確認していますが、旧形式の実データがどこに存在するかを固定していません。これでは移行対象の既存ファイルが本当に読めるか検証できません。
+    suggestion: |
+      旧形式サンプルを plan 内に示し、T07 を「旧形式から期待する active 件数・タイトル・期限が出る」または「旧形式は手動移行が必要で `[NOOP]` になり得る」のどちらかに寄せてください。
+    file: "plan.md"
+  - severity: low
+    title: "`[NOOP]` の文字数説明が不正確"
+    detail: |
+      plan では `[NOOP]` を「5 文字のみ」と書いていますが、実際は角括弧を含めて 6 文字です。exact match を扱う箇所なので、説明のミスはテスト実施時の混乱になります。
+    suggestion: |
+      「6 文字のみ」に修正してください。
+    file: "plan.md"

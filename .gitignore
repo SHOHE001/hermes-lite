@@ -37,3 +37,7 @@ features/.batch/lock
 # Issue #3 承認ゲート: var/approvals.sqlite ほか runtime データ
 var/*
 !var/.gitkeep
+
+# Issue #4 goals-nudge: ユーザー個人の目標ファイル（個人情報・未公開予定が混ざり得る）
+# `goals.md.example` から `cp goals.md.example goals.md` してローカル編集する
+/goals.md

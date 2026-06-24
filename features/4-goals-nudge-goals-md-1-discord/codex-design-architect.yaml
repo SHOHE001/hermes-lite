@@ -1,0 +1,48 @@
+verdict: fail
+blocking: 2
+persona: architect
+summary: |
+  設計は jobs/runner 既存境界を尊重しようとしているが、重要な責務を `prompt.md` 内の LLM 解釈に寄せすぎており、既存の `run-claude.sh` / Discord 通知経路との契約として成立していない箇所がある。特にツール許可と NOOP 抑止の正確性を未確証のまま設計中核に置いている点は architect 観点で blocking。
+findings:
+  - severity: high
+    title: "未確証の `Bash(date:*)` を設計中核にしており、job の依存契約が成立していない"
+    detail: |
+      plan は `ALLOWED_TOOLS="Read Bash(date:*)"` をインジェクション対策と日付検証の前提にしている一方で、『pattern が claude CLI 引数として正しく解釈されるかは実装で確証していない』と明記している。これは単なる実装確認ではなく、`prompt.md` の期限妥当性判定、TODAY 取得、ツール拡散遮断という設計上の安全境界そのものに関わる。さらに失敗時の次善策が `ALLOWED_TOOLS="Read Bash"` で、runner レイヤの遮断という §1.b の設計方針を崩すため、設計内で依存境界が自己矛盾している。
+    suggestion: |
+      設計段階で既存 `bin/run-claude.sh` と claude CLI の allowed-tools pattern 契約を確定する。確定できないなら `date` 呼び出しを runner 側で環境変数として渡す、またはこの job 専用の薄い wrapper を新規追加して Bash tool 自体を不要にするなど、LLM tool permission に安全境界を置かない構成へ変更する。
+    file: "plan.md"
+  - severity: high
+    title: "NOOP exact match を LLM 出力契約に依存しており、既存 Discord 通知経路との境界が脆い"
+    detail: |
+      `SUPPRESS_RESULT_IF="[NOOP]"` は `bin/run-claude.sh` の exact match に依存すると書かれているが、plan は `[NOOP]` の完全一致を LLM への自然文指示だけで保証しようとしている。これは既存 runner の通知責務と job prompt の生成責務の境界が曖昧で、空白・改行・説明文が混ざるだけで Discord に不要通知される。特に plan 自身が parser/formatter を deterministic にしない方針を採っているため、抑止条件だけ exact contract を要求する設計は整合していない。
+    suggestion: |
+      NOOP 判定は runner 側に渡す構造化終了コードや専用 result marker ファイルなど、LLM の自然文出力以外で決める設計にする。既存 runner を編集しない制約を維持するなら、job 専用 wrapper で LLM 出力を正規化してから runner の通知経路に渡す案を検討する。少なくとも `[NOOP]` exact match を安全上の必須条件ではなく、失敗しても許容できる運用条件に格下げする必要がある。
+    file: "plan.md"
+  - severity: medium
+    title: "絶対パスのハードコードが repo root 配置方針とモジュール境界に反している"
+    detail: |
+      `goals.md` は repo root 直下に置く設計なのに、`prompt.md` では `/home/shohei/プロジェクト/hermes-lite/goals.md` を直接読むとしている。これにより `jobs/goals-nudge/` はリポジトリ構造ではなく特定ホストの配置に依存し、既存 jobs の再利用可能な `jobs/<name>/` 境界から外れる。`gen8 以外では prompt.md を書き換える` という運用は、設定とプロンプト本文の責務分離にも反する。
+    suggestion: |
+      共有 runner を変更しないなら、`job.env` に `GOALS_PATH` のような値を置き、prompt 生成時または job 専用 wrapper で埋め込む構成を検討する。少なくとも docs の注意ではなく、host 固有値を設定ファイルに隔離する設計にする。
+    file: "plan.md"
+  - severity: medium
+    title: "自然文 prompt に parser/formatter の全責務を集約しており、仕様と実装境界が不明確"
+    detail: |
+      plan は regex、日付再正規化、件数上限、parse 失敗、overflow_count などを『prompt.md の自然文指示』で実装するとしているが、これは `jobs/goals-nudge/` の責務を実行可能コードではなく LLM 解釈に置いている。architect 観点では、`goals.md` フォーマットという repo 内データ契約をどのモジュールが所有するのか曖昧で、将来の別 job や docs との整合性を検証しにくい。Non-Goals の『スキーマ厳密検証しない』とは別に、最低限の構文解釈まで非決定化する理由が弱い。
+    suggestion: |
+      不変ルールが `claude -p` subprocess を基本とすることだとしても、`goals.md` の読み取りと安全な要約入力生成だけは小さな deterministic preprocessor に分離する案を再検討する。採らない場合は、なぜ parser まで LLM に寄せることが既存設計上の必須条件なのかを明記する。
+    file: "plan.md"
+  - severity: medium
+    title: "parse 失敗セクションと active 0 件時の出力方針が衝突している"
+    detail: |
+      §1 では parse 不能セクションは本文に `⚠ parse 失敗: <タイトル>` を出すと定義しているが、§2 では active 件数が 0 なら `[NOOP]` だけを返すとしている。破壊セクションのみ存在する場合、parse 失敗を通知するのか NOOP で黙殺するのかが未定義。これはデータ品質の通知責務と nudge 対象ゼロの抑止責務が同じ `total_active == 0` 条件に混ざっている設計不整合。
+    suggestion: |
+      `parse_errors > 0 && total_active == 0` の期待挙動を明示する。データ破損を通知したいなら NOOP 条件は `total_active == 0 && parse_errors == 0` にする。通知抑止を優先するなら §1/§3 の parse 失敗行出力仕様を限定する。
+    file: "plan.md"
+  - severity: low
+    title: "before/after 要件に対して『既存ファイル編集なし』の説明はあるが、新規 job の契約例が不足している"
+    detail: |
+      共通観点の『既存関数編集: before/after コードスニペット』について、本 plan は既存ファイルを編集しないため直接の before/after は不要。ただし `jobs/mail-watch/` と同じ構造に乗せるとしながら、新規 `job.env` と `prompt.md` が既存 job contract にどう対応するかのサンプルが薄く、implementer が runner 契約を誤読する余地がある。
+    suggestion: |
+      `jobs/mail-watch/job.env` との対応表、または新規 `jobs/goals-nudge/job.env` の完成形スニペットを docs ではなく plan 本文に明示する。
+    file: "plan.md"

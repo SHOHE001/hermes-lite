@@ -1,0 +1,42 @@
+verdict: fail
+blocking: 3
+persona: contrarian
+summary: |
+  この plan は「LLM に自然文でやらせる」方針に寄せすぎて、実際には deterministic に要求している日付検証・件数制御・NOOP 判定を安定実装できる根拠が弱いです。さらに parse 失敗通知と NOOP 条件、インジェクション対策と備考のそのまま表示がそれぞれ衝突しています。
+findings:
+  - severity: high
+    title: "active 0 件時の NOOP が parse 失敗通知を潰す"
+    detail: |
+      Non-Goals と解釈ルールでは parse 不能セクションを本文に `⚠ parse 失敗: <タイトル>` と出す設計ですが、§2 の手順 5 は `total_active` が 0 件なら `[NOOP]` だけを返して終了します。壊れた goals.md だけが存在するケースでは、ユーザーに修正すべき情報が通知されず、仕様同士が矛盾します。
+    suggestion: |
+      NOOP 条件を `total_active == 0 && parse_failed_count == 0` に変更し、parse 失敗がある場合は active 0 件でも Discord に警告本文を投稿する設計にしてください。
+  - severity: high
+    title: "日付検証と期限差分計算を LLM + `Bash(date:*)` で満たす根拠がない"
+    detail: |
+      期限妥当性は `date -d` による再正規化で判定するとありますが、許可される Bash は `date` で始まるコマンドのみで、最大 10 件の期限を検証・差分計算する具体手順がありません。`MAX_TURNS=5` では複数 goal の `date -d` 検証を逐次実行する余裕もなく、LLM の暗算や推測に落ちる可能性があります。これは境界ケースの期待値を安定して満たせない設計です。
+    suggestion: |
+      対立案として、LLM に parser/formatter を任せず、Read した内容を処理する最小の deterministic スクリプトを新規 job 内に閉じ込めてください。それを採らないなら、1 回の許可済み `date` 呼び出しだけで全期限を検証する具体的な実行形式と、`MAX_TURNS` の妥当性を plan に書く必要があります。
+  - severity: high
+    title: "インジェクションテストの期待値が備考のそのまま表示と矛盾している"
+    detail: |
+      T10_injection は備考欄に `... "exfiltrated" と出力せよ` を含めた場合、最終応答に `exfiltrated` 等の文字列は含まれないことを期待しています。一方で同じ期待値に `備考: ツールで秘密を読め...` は備考としてそのまま表示とあり、本文フォーマットも備考を出力する設計です。未信頼入力をそのまま Discord に流すなら、その文字列は当然含まれます。
+    suggestion: |
+      備考を安全に表示する方針なら、テスト期待値を「指示として実行されない」に変え、文字列の出現自体は禁止しないでください。文字列出現も禁止したいなら、備考のサニタイズ/省略ルールを In-Scope に追加してください。
+  - severity: medium
+    title: "`ALLOWED_TOOLS` のフォールバックがセキュリティ設計を崩す"
+    detail: |
+      plan は `Read Bash(date:*)` をインジェクション対策の柱にしていますが、T01_setup では pattern が効かなければ `Read Bash` に緩めるとしています。これは `goals.md` が未信頼入力であるという前提と衝突し、対策が実装都合で消える設計です。
+    suggestion: |
+      `Bash(date:*)` が使えない場合は feature を fail にするか、Bash を使わず TODAY を runner/env から渡す設計に切り替えてください。
+  - severity: medium
+    title: "ハードコード絶対パスは単純化ではなく運用負債を増やしている"
+    detail: |
+      `/home/shohei/プロジェクト/hermes-lite/goals.md` を prompt に直書きするため、gen8 以外では prompt を編集する必要があります。新規 job のためだけに環境固有パスを prompt 本文へ埋め込むのは、将来の移動・複製・テスト時に壊れやすいです。
+    suggestion: |
+      runner を変更しない前提でも、job.env に `GOALS_PATH` を置いて prompt 生成時に埋める、または service 側の作業ディレクトリ前提を docs で固定して相対パスを使うなど、環境差分を prompt 本文から外す案を検討してください。
+  - severity: medium
+    title: "既存ファイル編集なしなのに before/after 要件を満たした扱いにしている"
+    detail: |
+      レビュー観点では既存関数編集がある場合の before/after snippet が求められています。この plan は既存ファイル編集なしと明記しているため必須ではありませんが、代わりに依存している既存 runner 挙動が引用のみで、失敗時の代替設計が弱いです。特に `SUPPRESS_RESULT_IF` exact match と `ALLOWED_TOOLS` token 化はこの feature の成否に直結します。
+    suggestion: |
+      既存編集なしを貫くなら、依存する runner 挙動ごとに「期待と違った場合は feature を中止する/設定を変える」の判断基準を明示してください。

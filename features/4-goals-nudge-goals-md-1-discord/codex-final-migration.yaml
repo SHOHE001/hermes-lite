@@ -1,0 +1,46 @@
+verdict: fail
+blocking: 3
+persona: migration
+summary: |
+  migration 観点では、既存 checkout / production 運用へ持ち込むための互換性と受け入れ証跡がまだ足りません。特に gen8 固定パス、未実施の主要手動テスト、状態ファイルの破損疑いは merge 前に解消すべきです。
+findings:
+  - severity: high
+    title: "gen8 固定の絶対パスが別 checkout で誤った goals.md を読む"
+    detail: |
+      docs と plan は `jobs/goals-nudge/prompt.md` に `/home/shohei/プロジェクト/hermes-lite/goals.md` をハードコードし、gen8 以外では prompt を手動編集するとしています。これは既存の repo 複製・別 checkout・テスト環境で `bin/run-claude.sh goals-nudge` を実行したとき、現在の作業ツリーではなく固定パス側の個人 goals.md を読む移行破壊になります。存在する別ファイルを読むケースは `[NOOP]` にならず検知も難しいため、単なる運用注意では不足です。
+    suggestion: |
+      少なくとも `job.env` か docs 手順で読み取り対象パスと現在の repo root が一致することを T01/T02 に必須確認として追加してください。可能なら prompt 生成または job 専用 wrapper で `GOALS_MD_PATH` を注入し、prompt 本文の手動編集を移行手順にしないでください。
+    file: "docs/jobs-goals-nudge.md"
+    line: 28
+  - severity: high
+    title: "主要受け入れケースが user_manual_required のまま production 移行できない"
+    detail: |
+      追加コンテキストの Test summary は 17 ケース中 3 件だけ dry-run 済みで、Discord 投稿、状態正規化、期限境界、11件上限、parse 失敗、injection、timer などは `user_manual_required` のままです。この job は LLM prompt に parser/formatter を置く設計なので、境界ケースの実行確認がないと既存運用へ移行した時に通知誤送信・NOOP 抑制漏れ・期限計算ミスを検出できません。
+    suggestion: |
+      production の `job.env` そのまま、または Discord 投稿だけ明示的にユーザー承認した状態で、少なくとも T02_boundary/T03/T04/T05/T08/T09/T10/T11 を実行し、ログパスと結果を `test-summary.json` に記録してください。未実施なら phase は passed ではなく needs-manual として止めるべきです。
+    file: "features/4-goals-nudge-goals-md-1-discord/codex-input.md"
+    line: 24
+  - severity: high
+    title: "追加された state.json が diff 上で JSON として完結していない"
+    detail: |
+      `features/4-goals-nudge-goals-md-1-discord/state.json` の追加 hunk は `"core_impl": "passed",` の後で途切れており、閉じ括弧が確認できません。diff truncation の影響で後続 hunk が落ちた可能性はありますが、この種の state file は後段 automation が機械的に読むため、壊れた JSON のまま入ると loop/dashboard/merge 判定を破壊します。
+    suggestion: |
+      実ファイルに対して `jq . features/4-goals-nudge-goals-md-1-discord/state.json` を通し、完全な JSON であることを final summary/test-summary に記録してください。truncated diff だけで確認不能なら merge 判定前に完全 diff を再提出してください。
+    file: "features/4-goals-nudge-goals-md-1-discord/state.json"
+    line: 1
+  - severity: medium
+    title: "既存 goals.md の退避手順が単一 .bak で上書き事故を招く"
+    detail: |
+      test plan は既存 `goals.md` がある場合に `goals.md.bak` 等へ退避するとしていますが、`goals.md` は `.gitignore` 対象の個人データです。複数回の試走や中断時に同じ `.bak` を上書きすると、元の目標ファイルを失う可能性があります。
+    suggestion: |
+      退避手順は `cp -p goals.md goals.md.bak.$(date +%Y%m%d-%H%M%S)` のようなタイムスタンプ付きコピーにし、テスト fixture は別名から明示的に差し替える手順へ変更してください。
+    file: "features/4-goals-nudge-goals-md-1-discord/plan.md"
+    line: 178
+  - severity: medium
+    title: "旧 frontmatter 形式の扱いが移行注意として弱い"
+    detail: |
+      仕様は先頭 frontmatter を削除するとしていますが、旧形式の実データが frontmatter 内にあった場合は active 件数が 0 になり `[NOOP]` へ落ちます。自動変換しない方針自体は Non-Goals ですが、migration としては『旧形式でも通知は出る』と読める docs 表現が残ると既存ユーザーが silent NOOP を見逃します。
+    suggestion: |
+      docs に『frontmatter 内の目標データは通知対象にならない。新形式へ手動移行してから有効化する』と明記し、T07 も frontmatter 内データを期待しないことを確認するテストに寄せてください。
+    file: "docs/jobs-goals-nudge.md"
+    line: 49

@@ -1,0 +1,46 @@
+verdict: fail
+blocking: 3
+persona: contrarian
+summary: |
+  goals-nudge 本体よりも、未完了/失敗状態のレビュー成果物と状態ファイルを一緒にコミットしている点が大きいです。最小の job 追加として見ると、実装完了の根拠が薄く、むしろ自動化に失敗状態を流し込む差分になっています。
+findings:
+  - severity: high
+    title: "失敗 verdict のレビュー成果物をコミットしたまま feature を進めている"
+    detail: |
+      diff には `codex-final.yaml` が `verdict: fail` / `blocking: 6` として追加され、persona 別の final review も fail のまま入っています。一方で同じ feature 配下の `state.json` は design/core phase を passed として扱っており、後段の集計がどちらを正と見るかで結果が分岐します。これは単なるドキュメントではなく、機械可読な判定ファイル同士の矛盾です。
+    suggestion: |
+      fail verdict のレビュー成果物を最終成果物としてコミットしないか、状態を `needs-discussion` / failed に合わせてください。少なくとも merge 判定が読む canonical なファイルを 1 つに固定する必要があります。
+    file: "features/4-goals-nudge-goals-md-1-discord/codex-final.yaml"
+    line: 1
+  - severity: high
+    title: "主要受け入れ条件が未実施なのに完了扱いになっている"
+    detail: |
+      追加 context の Test summary は 17 件中 3 件だけ dry-run auto-verified で、Discord 投稿、状態正規化、期限境界、11件 overflow、parse 失敗、インジェクション耐性など T02..T11 が user_manual_required のままです。この job は LLM prompt に parser/formatter/NOOP を委ねる設計なので、代表境界ケースを実行していない状態では仕様を満たした証明になりません。
+    suggestion: |
+      少なくとも Discord 投稿を無効化した dry-run fixture で T02_boundary/T04/T05/T08/T09/T10/T11 相当を実行し、結果ログを有効な summary に残してください。実投稿が必要なものだけを手動確認に分離すべきです。
+    file: "features/4-goals-nudge-goals-md-1-discord/codex-input.md"
+    line: 24
+  - severity: high
+    title: "Non-Goals 違反: feature 本体に不要な orchestration/review メタデータを大量追加している"
+    detail: |
+      plan の実装対象は `goals.md.example`、`jobs/goals-nudge/**`、`docs/jobs-goals-nudge.md`、例外的な `.gitignore` です。しかし diff では design/final review yaml、verdict json、state/rejection/judgment など feature-loop の内部状態が大量に追加されています。goals-nudge の動作に不要で、変更セットを分割すれば削除できる部分です。
+    suggestion: |
+      ユーザー向け機能差分と loop/review 実行ログを分離してください。機能コミットには実行に必要な job/docs/example/ignore だけを残し、レビュー・状態メタデータは別の運用成果物として扱うべきです。
+    file: "features/4-goals-nudge-goals-md-1-discord/codex-design.yaml"
+    line: 1
+  - severity: medium
+    title: "docs が gen8 固定の絶対パス運用を仕様化しており、単純な job として過剰に脆い"
+    detail: |
+      `docs/jobs-goals-nudge.md` は `/home/shohei/プロジェクト/hermes-lite/goals.md` を prompt にハードコードする前提をそのまま運用条件にしています。runner を変えない制約は理解できますが、job 追加のために prompt 本文を環境別に編集する運用は、チェックアウト場所を変えるだけで別ファイルを読む危険があります。
+    suggestion: |
+      この Issue では runner 改修をしないとしても、少なくとも `prompt.md` 内のハードコード箇所を docs から検査する手順を入れ、実行 repo と読み取り対象が一致することを T01/T02 に含めてください。
+    file: "docs/jobs-goals-nudge.md"
+    line: 26
+  - severity: medium
+    title: "NOOP exact match の既知リスクを運用注意で済ませている"
+    detail: |
+      docs の既知の制約で、LLM が `[NOOP]` に改行や空白を付けると Discord 投稿されると認めています。対象 0 件時に投稿スキップすることは In-Scope の中核なので、既知リスクとして残すだけでは仕様達成が LLM の出力 discipline に依存し続けます。
+    suggestion: |
+      runner を触らない前提なら、少なくとも dry-run で `[NOOP]` raw exact を継続検証する fixture を残してください。可能なら follow-up を blocking risk として明示し、今回の pass 条件から切り離さないでください。
+    file: "docs/jobs-goals-nudge.md"
+    line: 156

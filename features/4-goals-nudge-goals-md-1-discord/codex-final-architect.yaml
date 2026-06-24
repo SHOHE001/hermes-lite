@@ -1,0 +1,38 @@
+verdict: fail
+blocking: 2
+persona: architect
+summary: |
+  差分は goals-nudge の機能追加としてはまだ merge 可能な単位になっていません。特に受け入れ状態の表現と、`Bash(date:*)` に安全境界を置く設計が architecture contract として弱く、critical はないものの high が残ります。
+findings:
+  - severity: high
+    title: "主要仕様を未検証のまま `core_impl: passed` としている"
+    detail: |
+      追加された状態ファイルでは `design_review` / `acceptance_skeleton` / `core_impl` が passed 扱いになっていますが、提示された Test summary は 17 件中 3 件のみ dry-run 自動確認で、Discord 投稿、状態正規化、期限境界、overflow、parse-only、injection など job の中核契約は `user_manual_required` のままです。今回の実装は parser/formatter を prompt に寄せる設計なので、境界ケースの実走確認は単なる任意テストではなく実装妥当性の一部です。
+    suggestion: |
+      `state.json` を passed にせず、未実施項目を明示した `needs-manual` / `needs-discussion` 相当の状態にする。少なくとも T02_boundary、T04/T05 境界、T08、T09、T10、T11 のログ証跡を残してから passed にしてください。
+    file: "features/4-goals-nudge-goals-md-1-discord/state.json"
+    line: 6
+  - severity: high
+    title: "`Bash(date:*)` を安全境界にしているが shell injection 面の契約が曖昧"
+    detail: |
+      plan/docs は `Bash(date:*)` を「date で始まる Bash コマンドのみ」として prompt injection 対策の柱にしています。しかし Bash tool は shell 文字列を実行するため、allowed-tools の pattern が先頭一致に近い場合、`date ...; ...` や command substitution を含む文字列まで許す余地があります。未信頼の `goals.md` を LLM が読む構造で、この pattern の正確な許可文法と拒否例を検証せずに安全境界として扱うのは architect 観点で危険です。
+    suggestion: |
+      T01_setup を「unknown warning が出ない」だけでなく、`Bash(date +%Y-%m-%d; id)` や `Bash(date +%Y-%m-%d && id)` 等が拒否されることまで確認するテストに拡張する。拒否できないなら Bash tool を使わず、runner/job 専用 wrapper 側で TODAY と期限差分を deterministic に渡す構成に分離してください。
+    file: "features/4-goals-nudge-goals-md-1-discord/test-spec.md"
+    line: 13
+  - severity: medium
+    title: "設計レビュー成果物まで feature diff に含めており責務境界が濁っている"
+    detail: |
+      `codex-design-*.yaml`、`codex-final-*.yaml`、verdict JSON などのレビュー中間成果物が大量に追加されています。これらがプロジェクトの永続成果物ならよいですが、plan の実装対象は `goals.md.example`、`jobs/goals-nudge/**`、`docs/jobs-goals-nudge.md`、`test-spec.md`、`.gitignore` であり、review transcript の永続化契約は明示されていません。機能差分と loop 運用ログが混在すると、後続レビューで何が runtime contract か判別しにくくなります。
+    suggestion: |
+      永続化が必要な review artifact を plan に明記するか、機能実装 diff から分離してください。少なくとも aggregate だけを残すなど、repo に置く粒度を決めるべきです。
+    file: "features/4-goals-nudge-goals-md-1-discord/codex-final.yaml"
+    line: 1
+  - severity: medium
+    title: "host 固定パスが job 境界を設定ではなく prompt 本文に埋め込んでいる"
+    detail: |
+      `/home/shohei/プロジェクト/hermes-lite/goals.md` を prompt/docs に直書きしており、job の環境差分が `job.env` ではなく prompt 本文の編集に漏れています。plan 上は gen8 固定として許容されていますが、`jobs/<name>/` の再利用可能な構造から見ると設定と指示文の境界が崩れています。
+    suggestion: |
+      runner を変更しない制約があるなら accepted risk として状態に明示し、follow-up で `GOALS_MD_PATH` を prompt に注入できる薄い wrapper または runner 拡張を切るのが妥当です。
+    file: "docs/jobs-goals-nudge.md"
+    line: 28

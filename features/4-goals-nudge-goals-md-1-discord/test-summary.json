@@ -1,0 +1,47 @@
+{
+  "summary": "3/17 cases auto-verified via dry-run (T01_setup, T01, StepC_active_path_and_date_dash_d). All Discord-posting cases (T02..T11) are user_manual_required because the codebase deliberately routes through bin/run-claude.sh which posts to Discord on success; sending to a real channel without user approval would violate the CLAUDE.common.md 'pre-confirmation for outbound messages' rule. Step C dry-run used NOTIFY_RESULT=0 as a temporary guard and verified Bash(date:*) accepts both 'date +' and 'date -d' invocations (permission_denials=[]). MAX_TURNS raised from 5 to 20 after Codex round 1 to fit active 10件 + per-goal date validation.",
+  "framework": "manual checklist",
+  "test_spec_file": "features/4-goals-nudge-goals-md-1-discord/test-spec.md",
+  "automated_tests": "none",
+  "manual_check_required": true,
+  "auto_verified": [
+    {
+      "id": "T01_setup",
+      "status": "passed",
+      "evidence": "logs/goals-nudge/20260624-183854.stderr is empty (no unknown allowed-tools pattern warning for Bash(date:*))"
+    },
+    {
+      "id": "T01",
+      "status": "passed",
+      "evidence": "logs/goals-nudge/20260624-183854.json .result == '[NOOP]' exact 6 bytes, is_error: false, num_turns: 3, cost $0.126. Run with goals.md absent. stderr included 'result matched SUPPRESS_RESULT_IF — skipping Discord post'."
+    },
+    {
+      "id": "StepC_active_path_and_date_dash_d",
+      "status": "passed",
+      "evidence": "logs/goals-nudge/20260624-184731.json: MAX_TURNS=20 / NOTIFY_RESULT=0 で active 2 件 + invalid date 1 件 + achieved 1 件 を含む fixture を試走。.result の先頭は '🎯 週次 goals nudge (2026-06-24)\\n\\nactive な目標 2 件：'、2 件目は無効日付 2026-02-30 を「期限不明」として処理、achieved は除外。num_turns=6, is_error=false, stop_reason=end_turn, cost $0.20, permission_denials=[]. つまり Bash(date:*) pattern は date +%Y-%m-%d と date -d \"2026-02-30\" +%Y-%m-%d の両形式を許可している。Discord post 経路は NOTIFY_RESULT=0 で抑止。"
+    }
+  ],
+  "user_manual_required": [
+    "T02 (active 1 件で Discord 実投稿)",
+    "T02_boundary (active と achieved の大小文字混在)",
+    "T03_boundary (全 achieved で Discord 投稿無し)",
+    "T04_today",
+    "T04_boundary",
+    "T04_8d",
+    "T05_boundary",
+    "T05_invalid (active 経路は StepC で関連検証済み、Discord 実投稿時の表示確認は手動)",
+    "T06 (systemd timer 登録)",
+    "T07_boundary (旧 frontmatter 形式)",
+    "T08_boundary (active 11 件)",
+    "T09_boundary (parse 失敗セクション混在)",
+    "T10_injection",
+    "T11_parse_only"
+  ],
+  "notes": [
+    ".env was newly created by hermes as a minimal stub for the dry-run. DISCORD_WEBHOOK_URL is a dummy placeholder; user must replace with real webhook before production use. This is .gitignored so won't be committed.",
+    "systemd timer was NOT enabled; only docs describe the setup.",
+    "MAX_TURNS was raised from 5 to 20 between the first WIP commit and the final review (Codex round 1 finding addressed: 5 turns was insufficient for active 10件 + multiple date -d calls).",
+    "Step C run used NOTIFY_RESULT=0 to avoid Discord posting; the env was restored to NOTIFY_RESULT=1 immediately after. goals.md fixture was also removed after the run.",
+    "goals.md is now in .gitignore (/goals.md) to prevent accidental commit of personal goal data."
+  ]
+}
