@@ -1,0 +1,30 @@
+verdict: fail
+blocking: 1
+persona: migration
+summary: |
+  実装本体は plan の移行互換要件を概ね満たしていますが、同じ差分内に現在の実装と矛盾する final review 成果物が追加されており、後続の判定・マージ処理が古い fail 判定を消費するリスクがあります。migration 観点では、実コードだけでなく移行パイプラインの状態ファイルも互換性対象です。
+findings:
+  - severity: high
+    title: "Stale final review artifacts report this implementation as an empty diff failure"
+    detail: |
+      差分では `SOUL.md`、`CLAUDE.md`、`gateway/discord/claude_runner.py` が実装済みなのに、新規追加された `features/6-soul-md-1-append-system-prompt/codex-final-*.yaml` は「git diff が空」「In-Scope の実装が未反映」とする古い fail 判定を保持しています。後段の自動集約や merge gate がこれらの成果物を読む設計なら、実装済み変更が誤って未実装扱いされるか、逆にレビュー状態の信頼性が壊れます。
+    suggestion: |
+      現在の diff に対して final review artifacts を再生成するか、レビュー生成物を今回の実装差分から除外してください。少なくとも `codex-final*.yaml` / `.verdict.json` の内容と `state.json` の final_review 状態を現実の実装状態に整合させてから再レビューしてください。
+    file: "features/6-soul-md-1-append-system-prompt/codex-final-migration.yaml"
+    line: 4
+  - severity: medium
+    title: "APPEND_SYSTEM_PROMPT alias no longer affects _build_cmd behavior"
+    detail: |
+      `APPEND_SYSTEM_PROMPT = _DEFAULT_SOUL` は import 互換として残っていますが、`_build_cmd()` はこの alias ではなく `_load_soul()` を参照するようになりました。既存のテストや運用スクリプトが `claude_runner.APPEND_SYSTEM_PROMPT` を monkeypatch して `_build_cmd()` の prompt を差し替えていた場合、import は壊れない一方で挙動は変わります。
+    suggestion: |
+      この挙動変更を明示的に許容するなら migration note に書いてください。互換性を厚くするなら `_load_soul()` の fallback または test seam を用意し、既存の alias 差し替え利用を検索して影響なしを確認してください。
+    file: "gateway/discord/claude_runner.py"
+    line: 89
+  - severity: medium
+    title: "Test evidence is inconsistent between added summary file and review input"
+    detail: |
+      差分内の `test-summary.json` は T01-T08 passed としていますが、レビュー入力の Additional context では Test summary が空です。最終判定でどちらを正とするかが曖昧で、移行時の fallback / UnicodeError / alias 互換が実際に検証済みか外部から確認しづらい状態です。
+    suggestion: |
+      最終レビュー入力に `test-summary.json` の内容を反映するか、実行ログの要点を review artifact に一元化してください。
+    file: "features/6-soul-md-1-append-system-prompt/test-summary.json"
+    line: 1

@@ -1,0 +1,38 @@
+verdict: pass
+blocking: 0
+persona: contrarian
+summary: |
+  実装本体は Phase 1 の狭い目的を満たしており、critical/high としてブロックすべき挙動破壊は見つかりません。ただし、レビュー生成物のコミット内容が現在の実装状態と矛盾しており、後続の自動判定や人間の確認を混乱させるリスクがあります。
+findings:
+  - severity: medium
+    title: "古い fail 判定の final review 成果物が差分に残っている"
+    detail: |
+      `features/6-soul-md-1-append-system-prompt/codex-final-*.yaml` と対応する `.verdict.json` は、現在の diff に SOUL.md / claude_runner.py / CLAUDE.md の実装が含まれているにもかかわらず、「git diff が空」「未実装」とする stale な fail 判定を新規追加しています。これらのファイルを後段の集約・状態管理・人間レビューが参照するなら、実装済みの変更を未実装として扱う誤判定の原因になります。
+    suggestion: |
+      今回の実装後に生成し直した final review 成果物だけを残すか、少なくとも stale な `codex-final-*` fail 判定ファイルをコミット対象から外してください。
+    file: "features/6-soul-md-1-append-system-prompt/codex-final-contrarian.yaml"
+    line: 3
+  - severity: medium
+    title: "test summary が複数箇所で矛盾している"
+    detail: |
+      `features/.../test-summary.json` では T01-T08 が passed と記録されている一方、`features/.../codex-input.md` の `# Test summary` は空の JSON ブロックのままです。レビュー入力として空の test summary が使われると、実際には検証済みでも未検証として扱われます。
+    suggestion: |
+      テスト結果の source of truth を 1 箇所に寄せ、レビュー入力に使う `codex-input.md` にも `test-summary.json` と同じ結果を反映してください。
+    file: "features/6-soul-md-1-append-system-prompt/codex-input.md"
+    line: 18
+  - severity: medium
+    title: "`SOUL.md` を source of truth と言いながら `_DEFAULT_SOUL` との二重管理が残る"
+    detail: |
+      fallback 互換のため `_DEFAULT_SOUL` を残す判断は理解できますが、人格文言の編集先が `SOUL.md` と Python 定数の 2 箇所になっています。T02 で drift は検出できますが、更新作業自体は二重であり、「1 ファイルに集約」という目的からはまだ中途半端です。
+    suggestion: |
+      Phase 2 または別 Issue で `_DEFAULT_SOUL` の削除条件を明記してください。残す期間中は、手動チェックではなく CI 相当で T02 を必ず実行する運用にしてください。
+    file: "gateway/discord/claude_runner.py"
+    line: 41
+  - severity: low
+    title: "`.strip()` により将来の prompt 先頭・末尾空白を保存できない"
+    detail: |
+      現在の旧 prompt には先頭・末尾空白がないため実害はありませんが、`_load_soul()` はファイル内容を常に `.strip()` して返すため、将来 SOUL.md 側で意図的に末尾改行や空白を含めても CLI には渡りません。
+    suggestion: |
+      空判定だけ `text.strip()` で行い、返却値は `text.rstrip('\n')` など意図を限定した処理にする方が外部ファイル化の意味に沿います。
+    file: "gateway/discord/claude_runner.py"
+    line: 63

@@ -1,0 +1,22 @@
+verdict: fail
+blocking: 1
+persona: architect
+summary: |
+  実装本体は plan の主要経路を概ね満たしていますが、同じ diff に失敗 verdict のレビュー成果物を新規追加しており、リポジトリ内の状態管理が実装結果と矛盾しています。下流の自動判定がこれらのファイルを読む設計なら、コードが正しくても Issue が失敗扱いになる可能性があります。
+findings:
+  - severity: high
+    title: "失敗 verdict のレビュー成果物を実装差分としてコミットしている"
+    detail: |
+      `features/6-soul-md-1-append-system-prompt/codex-final*.yaml` と対応する `.verdict.json` が新規追加され、いずれも `verdict: fail` / blockingありの内容になっています。特に `codex-final-architect.yaml` は「git diff が空」と主張しており、今回の実diffと明確に矛盾します。architect 観点では、実装成果物と状態管理ファイルが同一ブランチ上で矛盾しているため、後段の集約・merge gate・判定スクリプトがファイルベースで verdict を読む場合に、修正済み実装が失敗として扱われるリスクがあります。
+    suggestion: |
+      実装差分には最終的な正しい verdict/state だけを残してください。古い `codex-final*.yaml` / `.verdict.json` がログとして必要なら、後段 automation が入力として読まない場所へ退避するか、今回の final review 結果で上書きしてください。
+    file: "features/6-soul-md-1-append-system-prompt/codex-final-architect.yaml"
+    line: 1
+  - severity: medium
+    title: "実装外の feature 管理ファイル追加が多く、Issue の成果物境界が曖昧"
+    detail: |
+      In-Scope は `SOUL.md`、`gateway/discord/claude_runner.py`、`CLAUDE.md` の変更ですが、diff では design/final/rejection/state/test-spec など多数の feature 管理ファイルも新規追加されています。これらがプロジェクトの永続成果物なら問題ありませんが、作業ログなら本体変更と同じコミットに混ぜることで、レビュー対象と実行時成果物の境界が不明瞭になります。
+    suggestion: |
+      このリポジトリで `features/` を履歴として管理する方針なら、少なくとも最終状態と矛盾しない内容に整理してください。作業ログであれば本体変更から分離するのが安全です。
+    file: "features/6-soul-md-1-append-system-prompt/state.json"
+    line: 1

@@ -15,6 +15,7 @@ Hermes 本家を Anthropic OAuth (Claude Pro/Max) で動かしても、Anthropic
 - Anthropic API key / OpenRouter / Nous Portal などの **従量課金経路は使わない**
 - 実行系はすべて **`claude -p` を subprocess で呼ぶ形** を基本とする (自前で `~/.claude/.credentials.json` を読んで native Anthropic を叩くと #15080 と同じ罠を踏む)
 - Hermes 本家の Python ランタイム・uv・SOUL.md・skill 自動生成器などはインストールしない
+  - 例外: 「SOUL.md」というファイル名のみは採用する（本家の自動生成パイプラインは入れず、静的に人間が編集するテキストとして運用。Issue #6 / Phase 1）。現状は Discord runner だけが読み込み、ファイル不在時は Python 側 `_DEFAULT_SOUL` にフォールバックする。
 
 ### 3. ビルド方針
 

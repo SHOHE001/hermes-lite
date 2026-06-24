@@ -1,0 +1,41 @@
+verdict: fail
+blocking: 3
+persona: architect
+summary: |
+  Phase 1 の縮小自体は妥当だが、設計内で「1 ファイル集約」「移植のみ」「prompt 汚染なし」という中核方針が互いに衝突している。特に通常経路と fallback 経路で渡される system prompt が一致しないため、旧挙動互換を設計上証明できていない。
+findings:
+  - severity: high
+    title: "SOUL.md の見出し追加が「移植のみ」と fallback 互換を破っている"
+    detail: |
+      設計は SOUL.md を旧 APPEND_SYSTEM_PROMPT のそのままの移植先と説明している一方で、SOUL.md の 1 行目に `# SOUL — hermes-lite の人格` を追加し、通常経路ではその見出しごと `--append-system-prompt` に渡す設計になっている。fallback の `_DEFAULT_SOUL` にはこの見出しが無いため、SOUL.md 正常時と不在時で system prompt が一致しない。これは「旧挙動と完全互換」「中身は移植のみ」「prompt 本文に汚染を入れない」という複数の設計判断と衝突している。
+    suggestion: |
+      SOUL.md を本当に丸ごと prompt として渡すなら見出しを削除し、T02 も旧本文の先頭一致に変更する。見出しを残したいなら `_load_soul()` 側で見出しを除去する仕様を明記し、通常経路と fallback 経路の prompt が一致するテストを追加する。
+    file: "plan.md"
+  - severity: high
+    title: "「1 ファイル集約」と Python 側 `_DEFAULT_SOUL` の恒久的重複が衝突している"
+    detail: |
+      目的は人格・トーンを 1 ファイルに集約することだが、設計では旧 prompt 全文を `_DEFAULT_SOUL` として Python に残すため、実体としては SOUL.md と claude_runner.py の 2 箇所に同じ人格定義が存在する。fallback は移行安全策として理解できるが、ドリフト検知や削除予定、同期テストが無いため、設計上の単一情報源が成立していない。
+    suggestion: |
+      Phase 1 の互換策として `_DEFAULT_SOUL` を残すなら、期限または Phase 2 での削除条件を明記する。少なくとも SOUL.md の prompt 本文と `_DEFAULT_SOUL` が一致することを検証するテストを追加し、どちらが authoritative なのかを明文化する。
+    file: "plan.md"
+  - severity: high
+    title: "In-Scope 表で責務再編が同時に in/out になっている"
+    detail: |
+      In-Scope に `SOUL.md と CLAUDE.md の責務再編（人格・口調 vs ツール方針 vs 業務判断の境界整理）` が含まれているが、同じ行の Out-of-Scope と Non-Goals では責務再編を Phase 1 では扱わないとしている。architect 観点では、モジュール境界と責務定義が設計の中心であり、ここが曖昧なままだと CLAUDE.md へ注記を追加する範囲や SOUL.md に job 判定ルールを残す妥当性を判断できない。
+    suggestion: |
+      In-Scope から責務再編という表現を削除し、Phase 1 の責務を `Discord runner の既存 APPEND_SYSTEM_PROMPT を外部ファイルから読む` に限定する。job 判定ルールを SOUL.md に残す理由も、責務再編ではなく既存挙動維持として説明する。
+    file: "plan.md"
+  - severity: medium
+    title: "`strip()` により「そのまま移植」のバイト列互換は失われる"
+    detail: |
+      `_load_soul()` は `read_text(...).strip()` を使うため、SOUL.md の先頭・末尾の空白や終端改行は削除される。現状案では大きな挙動差には見えないが、「旧 APPEND_SYSTEM_PROMPT そのまま」「改行と空白を維持」と説明している設計文とは一致しない。
+    suggestion: |
+      空ファイル判定だけ `if not text.strip()` で行い、返す値は必要なら末尾改行のみ扱いを決めて明記する。完全一致を主張しないなら、設計文から空白維持の表現を弱める。
+    file: "plan.md"
+  - severity: medium
+    title: "CLAUDE.md 注記が Phase 2 の将来設計を先取りしている"
+    detail: |
+      CLAUDE.md に `Phase 2 で bin/run-claude.sh と jobs に広げる予定` と書く設計だが、Phase 2 は別 Issue で未確定とされている。architect 観点では、現在の責務境界を説明する文書に未確定の依存方向を固定的に書くと、後続設計の自由度とドキュメント整合性を損なう。
+    suggestion: |
+      CLAUDE.md の注記は Phase 1 の事実に限定し、Phase 2 予定は Issue 側に残す。例: `Phase 1 では Discord runner の静的 prompt ファイルとしてのみ使用する。`
+    file: "plan.md"

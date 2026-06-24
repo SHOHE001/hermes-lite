@@ -1,0 +1,41 @@
+verdict: fail
+blocking: 2
+persona: contrarian
+summary: |
+  この案は「1ファイルに集約」という目的に対して、実体としては SOUL.md と _DEFAULT_SOUL の二重管理を恒久化しており、過剰設計かつドリフトの温床です。さらに SOUL.md の見出し追加を「そのまま移植」「旧挙動完全互換」と呼んでいる点が自己矛盾しており、Phase 1 の成立条件を満たしていません。
+findings:
+  - severity: high
+    title: "「1ファイルに集約」と言いながら同一プロンプトを SOUL.md と _DEFAULT_SOUL に二重保持している"
+    detail: |
+      Issue の目的は人格・トーンを 1 ファイルに集約して使うことだが、設計は旧 APPEND_SYSTEM_PROMPT 全文を Python 側の _DEFAULT_SOUL に残す。これは単なる fallback ではなく、実運用上 SOUL.md と Python 定数のどちらが正なのかを曖昧にする二重ソース化であり、以後の編集時に必ずドリフトする。contrarian 観点では、より単純な案は「SOUL.md を必須ファイルとして読み、欠落時は明示的に失敗させる」または「fallback は最小メッセージだけにする」であり、この二重管理を採る正当性が不足している。
+    suggestion: |
+      Phase 1 では SOUL.md を唯一の source of truth にする。デプロイ漏れ対策が必要なら、起動時チェックまたは CI/manual test で SOUL.md 欠落を検出する設計にし、_DEFAULT_SOUL に全文を複製しない。どうしても fallback が必要なら、恒久仕様ではなく移行期間限定・削除 Issue 付きにする。
+    file: "plan.md"
+  - severity: high
+    title: "SOUL.md に固定見出しを追加しており「旧 APPEND_SYSTEM_PROMPT そのまま」「旧挙動完全互換」と矛盾する"
+    detail: |
+      SOUL.md は 1 行目に `# SOUL — hermes-lite の人格` を追加し、そのファイル全体を --append-system-prompt に渡す設計になっている。これは旧 APPEND_SYSTEM_PROMPT に存在しない system prompt 文言を追加するため、計画内の「旧 APPEND_SYSTEM_PROMPT のそのままの移植先」「中身は移植のみ」「旧挙動完全互換」と矛盾する。T03/T08 も `startswith('# SOUL')` を期待しており、互換性破壊をテストで固定化している。
+    suggestion: |
+      SOUL.md を prompt 本文として丸ごと渡すなら、見出しを入れず旧文字列と byte/semantic に一致させる。人間向けの識別が必要ならファイル名で十分。見出しを残すなら「旧挙動完全互換」という主張を撤回し、影響を明示したうえで受け入れ条件を更新する。
+    file: "plan.md"
+  - severity: medium
+    title: "Phase 2 の責務再編を Non-Goal にしながら CLAUDE.md へ将来計画を書き込んでいる"
+    detail: |
+      Non-Goals では SOUL.md と CLAUDE.md の責務分担の意味的整理、bin/run-claude.sh/jobs への展開を Phase 2 として除外している。一方で CLAUDE.md には「Phase 2 で bin/run-claude.sh と jobs に広げる予定」と書く設計で、Phase 1 の実装が未確定の将来方針を運用ドキュメントへ固定している。これはスコープ縮小の趣旨に反する。
+    suggestion: |
+      CLAUDE.md の追記は Phase 1 の事実だけに限定する。Phase 2 予定は issue tracker 側に残し、運用ドキュメントには未実装の約束を書かない。
+    file: "plan.md"
+  - severity: medium
+    title: "テストが _build_cmd の内部実装確認に偏っており、実際の Discord runner 経路を検証していない"
+    detail: |
+      T03-T05/T08 は _SOUL_FILE を monkey patch して _build_cmd を直接呼ぶだけで、run_claude 相当の実行経路や subprocess に渡る最終引数、logging 設定との整合を確認していない。手動テスト前提でも、公開経路に近い smoke test がないため、内部関数の形だけ満たして実運用が壊れる余地が残る。
+    suggestion: |
+      subprocess.run を monkey patch する Python レベルの smoke test を追加し、Discord runner の公開関数から最終 cmd に `--append-system-prompt` と SOUL.md 内容が渡ることを確認する。
+    file: "plan.md"
+  - severity: low
+    title: "warning 文言のテストがログ表現に依存していて壊れやすい"
+    detail: |
+      T04/T05 は stderr に固定文字列が出ることを grep しているが、logging.basicConfig の format や logger 名の変更で失敗し得る。設計上重要なのは fallback の選択であり、ログ文言の完全固定ではない。
+    suggestion: |
+      ログ確認は任意にするか、caplog 相当がない手動環境なら fallback 内容の assertion を主にし、ログ文言の grep は緩い確認に留める。
+    file: "plan.md"

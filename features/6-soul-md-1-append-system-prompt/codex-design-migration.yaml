@@ -1,0 +1,41 @@
+verdict: fail
+blocking: 3
+persona: migration
+summary: |
+  migration 観点では「旧挙動完全互換」と言いながら、通常経路の system prompt 内容と Python モジュールの公開面を変えている点がブロッキングです。fallback だけを互換にしても、SOUL.md が存在する本番経路で旧呼び出し元・既存テストとの互換は保証されません。
+findings:
+  - severity: high
+    title: "SOUL.md 正常系が旧 APPEND_SYSTEM_PROMPT と同一でない"
+    detail: |
+      plan は「旧 APPEND_SYSTEM_PROMPT のそのままの移植先」「旧挙動完全互換」と主張しているが、正常系では SOUL.md 全文を --append-system-prompt に渡すため、新規見出し `# SOUL — hermes-lite の人格` が system prompt に混入する。また Python 文字列連結で隣接していた文の間に、Markdown 側では改行や空白が追加されている。これは fallback ではなく通常運用時の挙動差であり、既存 Discord runner の prompt 契約を変える。
+    suggestion: |
+      SOUL.md の内容を旧 APPEND_SYSTEM_PROMPT とバイト列または少なくとも文字列として一致させる。見出しが必要なら loader 側で明示的に front heading を除去する、または T02 を廃止して prompt 本文だけを置く。T03 に `_load_soul() == _DEFAULT_SOUL` 相当の互換チェックを追加する。
+    file: "plan.md"
+  - severity: high
+    title: "APPEND_SYSTEM_PROMPT の削除が既存 import / テストを破壊し得る"
+    detail: |
+      T06 で `APPEND_SYSTEM_PROMPT` が消えていることを要求しているが、この定数は `gateway/discord/claude_runner.py` のモジュールレベル名であり、既存テスト、運用スクリプト、デバッグコードが import している可能性を否定していない。migration persona としては public API でない根拠がない限り、名前削除は後方互換破壊として扱うべき。
+    suggestion: |
+      少なくとも Phase 1 では `APPEND_SYSTEM_PROMPT = _DEFAULT_SOUL` の互換 alias を残し、T06 は「_build_cmd が APPEND_SYSTEM_PROMPT を直接参照しない」程度に変更する。削除するなら既存呼び出し元検索結果と削除時期を plan に明記する。
+    file: "plan.md"
+  - severity: high
+    title: "壊れた SOUL.md の fallback が UnicodeDecodeError を捕捉しない"
+    detail: |
+      fallback 設計は「SOUL.md が壊れた / 読込失敗なら _DEFAULT_SOUL」と書いているが、実装案は `except OSError` のみで、UTF-8 として壊れたファイルでは `UnicodeDecodeError` が発生し fallback せずに runner が失敗する。外部化直後のファイル破損・編集ミスに対する後方互換策として不十分。
+    suggestion: |
+      `except (OSError, UnicodeError) as e:` にするか、decode error を別途捕捉して `_DEFAULT_SOUL` に戻す。T04/T05 に加えて invalid UTF-8 の境界テストを追加する。
+    file: "plan.md"
+  - severity: medium
+    title: "`.strip()` により prompt 末尾・先頭の空白互換が暗黙に変わる"
+    detail: |
+      loader は `read_text(...).strip()` を使うため、SOUL.md 本文の先頭・末尾改行や空白が常に削除される。現状の旧定数には末尾改行がないため大きな差ではないが、「そのまま移植」「丸ごと渡す」という説明とは矛盾し、将来の編集時に意図した空白を失う。
+    suggestion: |
+      空判定には `if not text.strip():` を使い、返却値は元の `text` または末尾改行だけを明示的に扱う。
+    file: "plan.md"
+  - severity: medium
+    title: "Rollback 手順が実装後の通常状態を旧挙動に戻すだけで、API 変更は戻さない"
+    detail: |
+      SOUL.md を退避すれば prompt 内容は fallback で旧文字列に戻るが、`APPEND_SYSTEM_PROMPT` 名の削除や `_load_soul()` 導入による module surface の変更は残る。既存呼び出し元互換の rollback としては説明が不足している。
+    suggestion: |
+      互換 alias を残すか、rollback 方針に Python API 面の戻し方と既存呼び出し元確認を追加する。
+    file: "plan.md"

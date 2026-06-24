@@ -38,11 +38,9 @@ DISALLOWED_TOOLS = [
 # 明示的に allow したいツール（claude にツール選択を意識させる）
 ALLOWED_TOOLS = ["WebSearch", "WebFetch"]
 
-# Discord 用に振る舞いをチューニング:
-# - 即興質問は短く直接答える、確認質問は最小化
-# - 知らないことは WebSearch
-# - 継続実行依頼は ~/hermes-lite/jobs/ にジョブ化（手順は CLAUDE.md）
-APPEND_SYSTEM_PROMPT = (
+# SOUL.md が読めない場合の旧挙動互換用 fallback。
+# 中身は旧 APPEND_SYSTEM_PROMPT そのまま（Issue #6 移行時のセーフティネット）。
+_DEFAULT_SOUL = (
     "あなたは Discord 上のしょうへい専用アシスタントです。"
     "返事は短く、確認質問はできる限りせず、わかる範囲で直接答えてください。"
     "天気・ニュース・最新情報など知らないことを聞かれたら WebSearch を積極的に使ってください。"
@@ -57,6 +55,24 @@ APPEND_SYSTEM_PROMPT = (
     "それ以外の単発質問はその場で答えるだけ。迷ったら一度だけ "
     "「ジョブにしておく？それとも今だけ答えるだけにする？」と聞いてください。"
 )
+
+_SOUL_FILE = HERMES_HOME / "SOUL.md"
+
+
+def _load_soul() -> str:
+    try:
+        text = _SOUL_FILE.read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeError) as e:
+        log.warning("SOUL.md not loadable (%s): %s — using built-in default", _SOUL_FILE, e)
+        return _DEFAULT_SOUL
+    if not text:
+        log.warning("SOUL.md is empty (%s) — using built-in default", _SOUL_FILE)
+        return _DEFAULT_SOUL
+    return text
+
+
+# 後方互換 alias: 既存 import 互換維持（Issue #6 移行期）
+APPEND_SYSTEM_PROMPT = _DEFAULT_SOUL
 
 
 @dataclass
@@ -73,7 +89,7 @@ def _build_cmd(prompt: str, resume_session_id: str | None) -> list[str]:
     cmd = [CLAUDE_BIN, "-p", prompt, "--output-format", "json"]
     if resume_session_id:
         cmd.extend(["--resume", resume_session_id])
-    cmd.extend(["--append-system-prompt", APPEND_SYSTEM_PROMPT])
+    cmd.extend(["--append-system-prompt", _load_soul()])
     cmd.extend(["--allowed-tools", *ALLOWED_TOOLS])
     cmd.extend(["--disallowed-tools", *DISALLOWED_TOOLS])
     return cmd

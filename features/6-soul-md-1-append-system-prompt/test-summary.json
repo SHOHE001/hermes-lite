@@ -1,0 +1,19 @@
+{
+  "framework": "manual checklist",
+  "test_spec_file": "features/6-soul-md-1-append-system-prompt/test-spec.md",
+  "automated_tests": "none",
+  "manual_check_required": true,
+  "results": {
+    "T01_soul_md_exists_nonempty": "passed",
+    "T02_drift_detect_soul_vs_default": "passed",
+    "T03_normal_smoke_build_cmd": "passed",
+    "T04_missing_fallback_to_default_with_warning": "passed",
+    "T05_empty_fallback_to_default_with_warning": "passed",
+    "T05b_broken_utf8_fallback_to_default_with_warning": "passed",
+    "T06_backward_compat_alias_APPEND_SYSTEM_PROMPT": "passed",
+    "T07_claude_md_annotation": "passed",
+    "T08_resume_and_append_coexist": "passed"
+  },
+  "executed_at": "2026-06-24T08:10:00Z",
+  "notes": "All 9 manual checks passed on branch gloop/6-soul-md-1-append-system-prompt. Logging warnings observed as expected for T04/T05/T05b."
+}
