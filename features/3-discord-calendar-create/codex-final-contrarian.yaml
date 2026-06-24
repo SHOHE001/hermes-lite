@@ -1,0 +1,38 @@
+verdict: fail
+blocking: 3
+persona: contrarian
+summary: |
+  実装は LLM executor を採用したままですが、同梱された実測メモ自身が `claude -p --output-format json` では tool_use evidence を取れないことを示しており、承認後の正常完了経路が実質的に成立しません。さらに proposer と feature 管理の差分が Issue の最小スコープを超えており、より単純な CLI enqueue + 手動承認検証に縮小すべきです。
+findings:
+  - severity: critical
+    title: "tool_use evidence が取得不能なため承認済み Calendar 作成が正常完了できない"
+    detail: |
+      `features/3-discord-calendar-create/claude-cli-tool-use-evidence.md` は、現行 claude CLI v2.1.187 の JSON 出力に `tool_uses` / `messages` / `usage.tool_use_count` が存在しないため `extract_tool_calls()` が常に `[]` を返し、executor からは常に `create_event=0` と判定されると明記しています。これは plan の T02 期待値である row=`executed` と矛盾し、承認後に event が作られても DB は `failed_after_side_effect` へ落ちる設計です。つまり本機能の主目的である「承認で Calendar.create を一時解禁して実行する」成功経路が、実測済みの依存 CLI では成立しません。
+    suggestion: |
+      LLM executor をこの Issue の完了条件から外し、現行 CLI で tool_use evidence を取得できる方式に切り替えてから実装してください。少なくとも `stream-json` 等で name/input を自動テスト可能に取得できることを確認するまで、T02 を pass 条件にしないでください。
+    file: "features/3-discord-calendar-create/claude-cli-tool-use-evidence.md"
+    line: 44
+  - severity: high
+    title: "proposer ジョブが過剰で、承認ゲート基盤の最小実装を逸脱している"
+    detail: |
+      `jobs/approval-demo-proposer` は LLM に Bash を使わせて `python3 -c` を実行させる前提ですが、この Issue の中核は sqlite state machine と Discord approval handler であり、LLM proposer は必須ではありません。`ALLOWED_TOOLS=""` によるデフォルト tool set 利用まで設計に組み込んでおり、Calendar.create の承認ゲートとは別の広い実行面を追加しています。Out-of-Scope に mail-watch 連携がある以上、ここは固定 payload を CLI で enqueue するだけで検証できます。
+    suggestion: |
+      `jobs/approval-demo-proposer` を削り、Phase 1 は `python3 lib/approvals.py enqueue ...` の手動/fixture ベースに縮小してください。LLM proposer は mail-watch 連携または自動提案の Issue に分離するのが妥当です。
+    file: "features/3-discord-calendar-create/plan.md"
+    line: 85
+  - severity: high
+    title: "実装以外の batch/loop 状態ファイルが混入しており Issue 差分が汚染されている"
+    detail: |
+      `.gitignore` や docs だけでなく、`features/.batch/plan.json`、`features/.loop/state.json`、`features/.dashboard.md`、複数の `codex-design-*.yaml` / verdict ファイルが同じ diff に含まれています。これは Calendar approval gate の runtime 実装ではなく、実行環境のメタ状態・過去レビュー成果物です。main に入れると後続の batch/loop 管理状態を巻き戻しにくくし、実装レビュー対象を不必要に拡大します。
+    suggestion: |
+      この Issue の成果物から batch/loop のメタ状態とレビュー中間生成物を除外してください。必要なら別コミットまたは generated artifact として管理対象外にし、実装 diff は code/docs/tests/var/.gitkeep に限定してください。
+    file: "features/.batch/plan.json"
+    line: 1
+  - severity: medium
+    title: "0 回 tool 呼び出しと evidence 不在を同じ運用警告に寄せすぎている"
+    detail: |
+      実測上は evidence がないため `create_event=0` として `failed_after_side_effect` になりますが、これは「副作用が起きたかもしれない」と「tool を呼ばなかった」が区別できない状態です。運用者には Calendar cleanup を促す一方、DB status は失敗理由を十分に表現していません。
+    suggestion: |
+      `failed_unverified` や result JSON の `side_effect_possible` / `tool_evidence_unavailable` を分け、0 回検出・evidence 不在・多重呼び出しを別々に復旧できるようにしてください。
+    file: "features/3-discord-calendar-create/plan.md"
+    line: 320

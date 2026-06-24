@@ -19,3 +19,16 @@ CLAUDE_BIN = os.environ.get("CLAUDE_BIN", str(HOME / ".local" / "bin" / "claude"
 SESSIONS_DB = Path(__file__).with_name("sessions.sqlite")
 
 MAX_DISCORD_MESSAGE = 1900  # 2000 制限から余白
+
+# --- 承認ゲート (Issue #3) ---
+# config.py を HERMES_HOME / APPROVALS_DB の唯一の決定点とする (plan v6)
+HERMES_HOME = Path(os.environ.get(
+    "HERMES_HOME",
+    str(Path(__file__).resolve().parents[2]),
+))
+APPROVALS_DB = Path(os.environ.get(
+    "HERMES_APPROVALS_DB",
+    str(HERMES_HOME / "var" / "approvals.sqlite"),
+))
+# feature flag: default "0" (opt-in)。"1" のときのみ approval 経路を有効化。
+APPROVAL_COMMANDS_ENABLED = os.environ.get("HERMES_APPROVAL_COMMANDS_ENABLED", "0") == "1"

@@ -1,0 +1,38 @@
+verdict: fail
+blocking: 2
+persona: architect
+summary: |
+  実装は plan の主要構成を広く入れていますが、architect 観点では「承認後に自動実行して executed へ到達する」中核パスが成立していません。さらに feature/batch 系の運用メタデータが実装 diff に混入しており、Issue #3 の成果物境界が崩れています。
+findings:
+  - severity: high
+    title: "Claude CLI evidence が取得不能なまま自動実行パスを採用しており、T02 の成功条件と実装責務が破綻している"
+    detail: |
+      追加された `claude-cli-tool-use-evidence.md` は、現行 claude CLI v2.1.187 の `--output-format json` が tool_use の name/input を返さないため executor は常に `create_event=0` と見なして `failed_after_side_effect` に倒れる、と明記しています。これは plan の T02 `row=executed`、および docs の「create_event 1 回 / payload 完全一致なら done」という主経路と矛盾します。承認ゲート基盤としては、設計上の正常系が現在の依存 CLI で到達不能なため、アーキテクチャ上の中核契約が成立していません。
+    suggestion: |
+      この Issue では `executed` を成功条件から外して「手動 cleanup 前提の実験」にスコープを下げるか、stream-json 等で tool_use evidence を実際に取得できる経路へ executor を変更し、T02 を自動/手動で再定義してください。
+    file: "features/3-discord-calendar-create/claude-cli-tool-use-evidence.md"
+    line: 45
+  - severity: high
+    title: "Issue 実装に batch/loop の運用メタデータ更新が混入しており、モジュール境界とレビュー対象が汚染されている"
+    detail: |
+      `features/.batch/plan.json`、`features/.loop/state.json`、`features/.dashboard.md`、複数の `codex-design-*.yaml(.verdict.json)` が diff に含まれています。plan の実装対象は承認ゲート本体、docs、tests、feature evidence であり、batch runner の状態ファイルや過去レビュー集約結果は機能実装の成果物ではありません。これらは環境依存の生成物で、main に混ぜると将来の batch 実行状態・Issue 管理状態を誤って固定化します。
+    suggestion: |
+      Issue #3 の機能成果物から batch/loop/dashboard/judgment の生成状態を分離し、必要なら別コミットまたは生成物 ignore 方針に切り出してください。少なくとも本 PR から `features/.batch/*`、`features/.loop/*`、`.dashboard.md`、`codex-design*.yaml*` の状態更新を除外してください。
+    file: "features/.batch/plan.json"
+    line: 1
+  - severity: medium
+    title: "HERMES_HOME の決定点が config.py と lib CLI fallback に分裂している"
+    detail: |
+      plan は `config.py` を HERMES_HOME の唯一の決定点としていますが、CLI/lib 側は Path 自己導出 fallback を持つ前提です。Discord bot、proposer、executor が同一 sqlite を指すことが状態機械の前提なので、entrypoint ごとの path 解決が分散すると split-brain DB を作れます。
+    suggestion: |
+      共通の path 解決関数を lib 側に置いて bot config と CLI の両方から参照するか、全 entrypoint に `HERMES_HOME` / `HERMES_APPROVALS_DB` の明示伝搬を必須化してください。
+    file: "features/3-discord-calendar-create/plan.md"
+    line: 151
+  - severity: medium
+    title: "flag off 完全互換の主張に対して config 追加の起動時影響が十分に切られていない"
+    detail: |
+      flag off では approval_handler import/regex/sweep を skip する設計ですが、`gateway/discord/config.py` の新規 Path/env 解決と bot.py の追加 import は常に評価されます。approval 機能を無効にした既存 bot 起動に対する影響が、予約語 fallback テストだけでは検証されていません。
+    suggestion: |
+      flag off のテストに、`approval_handler` と `lib/approvals.py` が import されないこと、既存 `_handle` 経路が通ること、config import が既存環境変数のみで起動できることを追加してください。
+    file: "features/3-discord-calendar-create/plan.md"
+    line: 506

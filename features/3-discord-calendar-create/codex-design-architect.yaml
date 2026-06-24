@@ -1,0 +1,48 @@
+verdict: fail
+blocking: 3
+persona: architect
+summary: |
+  設計は前進していますが、既存の権限モデル・環境設定の単一性・承認者境界に内部矛盾が残っています。特に executor が既存の disallowed-tools 経路とどう整合するかが曖昧で、Calendar.create の一時解禁が設計として閉じていません。
+findings:
+  - severity: high
+    title: "Calendar.create の許可経路が既存 disallowed-tools 設計と衝突している"
+    detail: |
+      Non-Goals では `lib/disallowed-tools.txt` を書き換えず Calendar.create は disallowed のまま、executor の `--allowed-tools` だけで一時解禁するとしています。一方で `bin/run-claude.sh` は常に `--disallowed-tools` を渡す既存安全境界であり、executor が run-claude.sh を使うのか直接 `claude -p` を呼ぶのかで設計意味が変わります。直接呼ぶなら既存の disallowed-tools 安全モデルを bypass する新しい権限境界になりますし、run-claude.sh を使うなら allow と disallow の衝突時の Claude CLI 挙動が未定義です。これは『書き込み権限の分離』という構造的決定と既存安全機構の整合性が取れていません。
+    suggestion: |
+      executor の起動経路を一つに固定し、`--allowed-tools` と `--disallowed-tools` が衝突した場合の実測結果を設計に明記してください。直接 `claude -p` を呼ぶなら、既存 `run-claude.sh` 安全境界を意図的に bypass する理由と、executor 側で渡す全 CLI args を contract として固定してください。
+    file: "plan.md"
+  - severity: high
+    title: "HERMES_HOME の単一決定点という方針が lib/CLI 経路と矛盾している"
+    detail: |
+      重要な構造的決定では `config.py` を HERMES_HOME の唯一の決定点としていますが、同じ項目内で `lib/CLI 経路の fallback は同一アルゴリズム (Path 自己導出)` としており、実際には `gateway/discord/config.py` と `lib/approvals.py` の 2 か所に決定ロジックが分散します。Discord bot、proposer CLI、executor、systemd-run unit が同じ DB を指すことがこの設計の中核なので、ここが二重化すると T13 でしか検知できない運用時の split-brain DB を作れます。
+    suggestion: |
+      『唯一の決定点』を取り下げて明示的に `HERMES_HOME` / `HERMES_APPROVALS_DB` を全 entrypoint に必須伝搬する設計にするか、共通モジュールを `lib` 側に置いて `config.py` と CLI が同じ関数を import する設計に統一してください。
+    file: "plan.md"
+  - severity: high
+    title: "承認者境界が ALLOWED_USER_IDS と HERMES_APPROVAL_AUTHORIZED_USER_IDS に分裂している"
+    detail: |
+      bot.py は `_should_react` により `ALLOWED_USER_IDS` 外のメッセージを approval_handler に渡しません。一方、approval_handler は `HERMES_APPROVAL_AUTHORIZED_USER_IDS` を内部認可境界として扱い、docs でもこれを承認者設定として説明しています。この二重チェックは防御としては見えますが、2 つの集合の関係が定義されていないため、`HERMES_APPROVAL_AUTHORIZED_USER_IDS` に含まれる承認者でも `ALLOWED_USER_IDS` にいなければ承認不能です。逆に既存 bot 利用者全員を `_should_react` で通してから handler 側で拒否するため、承認機能の認可モデルが既存会話権限に依存してしまっています。
+    suggestion: |
+      承認者集合の依存関係を明文化してください。例: `authorized_approvers ⊆ ALLOWED_USER_IDS` を起動時検証で強制する、または approval コマンドだけは `_should_react` 前に検出して `HERMES_APPROVAL_AUTHORIZED_USER_IDS` で完結させる、のどちらかに統一してください。
+    file: "plan.md"
+  - severity: medium
+    title: "executor の `is_error` を常に副作用前失敗扱いする前提が tool 実行後エラーと整合しない"
+    detail: |
+      設計では `proc_result.get("is_error")` の場合に tool evidence を見ず `failed` に落とします。しかし Claude CLI のエラー表現が tool 実行後の最終応答エラーや出力整形エラーでも `is_error` になり得るなら、Calendar 副作用後のケースを `failed` と誤分類します。これは `failed_after_side_effect` を分離した設計方針と衝突します。
+    suggestion: |
+      `is_error` でもまず tool_use evidence と event link 抽出を試み、tool 実行の可能性が否定できない場合は `failed_after_side_effect` に倒す設計にしてください。
+    file: "plan.md"
+  - severity: medium
+    title: "flag off で既存挙動完全互換という主張が予約語テストとだけ結びついており import 副作用以外の差分が未定義"
+    detail: |
+      flag off では import/regex/sweep を skip とありますが、bot.py には新規 import と config 値追加が入ります。`config.py` の Path import、環境変数解決、型変更などが既存起動に影響しないことは plan 内で検証対象になっていません。architect 観点では『完全互換』を主張するなら bot 起動時依存の増加も境界に含める必要があります。
+    suggestion: |
+      T25 に加えて、flag off で `approval_handler` だけでなく `lib/approvals.py` が import されないこと、既存 Discord bot の起動ログ・通常 `_handle` 経路・config import が変わらないことを明示してください。
+    file: "plan.md"
+  - severity: medium
+    title: "`failed_after_side_effect` と `executed` の境界が Calendar 実状態ではなく CLI evidence に依存している"
+    detail: |
+      設計上の状態名は Calendar 側の実状態を表すように見えますが、実際には Claude CLI の evidence パース成功可否を表しています。特に tool_use evidence が取れない場合は tool 0 回でも `failed_after_side_effect` になります。これは運用ドキュメント上は説明されていますが、DB status の意味としては `side_effect_possible` に近く、状態遷移表の意味とややずれています。
+    suggestion: |
+      status 名または docs の定義を『副作用確認不能/副作用可能性あり』として明確化し、`failed_after_side_effect` が必ず副作用発生を意味しないことを CLI contract と recovery 手順にも入れてください。
+    file: "plan.md"

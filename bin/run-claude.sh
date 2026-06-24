@@ -25,7 +25,7 @@
 set -u  # set -e は使わない。失敗してもログ→Discord通知→cost記録の流れを止めたくない。
 
 # --- パス ---
-HERMES_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export HERMES_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 JOB_NAME="${1:-}"
 if [[ -z "$JOB_NAME" ]]; then
   echo "usage: $0 <job-name>" >&2

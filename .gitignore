@@ -33,3 +33,7 @@ features/.batch/lock
 # git 管理せず settings.json.example を雛形に各 clone がローカルで配置する)
 .claude/settings.json
 .claude/settings.local.json
+
+# Issue #3 承認ゲート: var/approvals.sqlite ほか runtime データ
+var/*
+!var/.gitkeep

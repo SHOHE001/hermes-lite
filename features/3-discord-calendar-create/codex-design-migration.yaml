@@ -1,0 +1,34 @@
+verdict: fail
+blocking: 2
+persona: migration
+summary: |
+  後方互換・移行観点では、既存の Discord 認可設定から新しい承認者設定への移行が暗黙で、feature flag を有効化しても既存運用者が承認できないリスクがあります。また、副作用後に `ERROR:` 結果を返すケースが通常 `failed` に落ちる設計になっており、復旧手順と状態意味論が壊れます。
+findings:
+  - severity: high
+    title: "既存 ALLOWED_USER_IDS から承認者設定への移行が非互換"
+    detail: |
+      bot.py は既存の ALLOWED_USER_IDS で _should_react を通した後、approval_handler.handle(text, user_id) 内で HERMES_APPROVAL_AUTHORIZED_USER_IDS を別途必須にしています。get_authorized_user_ids() は空文字なら空集合として拒否するため、既存 bot 利用者が HERMES_APPROVAL_COMMANDS_ENABLED=1 を有効化しただけでは全員 unauthorized になります。これは既存 Discord 認可設定との互換性破壊で、migration notice も「設定が別途必須」「既存 ALLOWED_USER_IDS からコピーが必要」という実移行手順まで明示していません。
+    suggestion: |
+      Phase 1 では HERMES_APPROVAL_AUTHORIZED_USER_IDS 未設定時に ALLOWED_USER_IDS をフォールバックとして使う、または有効化手順に必須 migration check を追加し、未設定なら bot 起動時に approval 機能を無効化して明示エラーにしてください。テストにも「ALLOWED_USER_IDS のみ設定された既存環境」の期待挙動を追加してください。
+    file: "plan.md"
+  - severity: high
+    title: "副作用後の ERROR 結果が failed_after_side_effect ではなく failed に分類される"
+    detail: |
+      approvals_executor.py の疑似コードでは tool_use evidence を検証し、create_event が 1 回かつ input 一致した後に result_text.startswith("ERROR:") を見ると side_effect=False で fail_during_executor() しています。この時点では create_event tool はすでに呼ばれているため、Calendar 側に event が作られている可能性があります。状態遷移と recovery docs は failed を「副作用前失敗」として扱うため、既存運用者は手動 cleanup が必要なケースを見逃します。
+    suggestion: |
+      tool_use が 1 回確認された後の失敗は、Calendar 作成が確実に失敗したことを MCP 応答から判定できる場合を除き failed_after_side_effect にしてください。少なくとも result_text.startswith("ERROR:") の分岐は create_calls 検出後なら side_effect=True に倒し、T28 とは別に「tool call 1 回後に ERROR result」の回帰テストを追加してください。
+    file: "plan.md"
+  - severity: medium
+    title: "schema v2 以降の DB を破棄する移行方針が既存 pending/approved を失わせる"
+    detail: |
+      docs の recovery 手順は DB schema mismatch 時に approvals.sqlite を rename して bot 再起動とし、既存 pending/approved を破棄するとしています。Phase 1 では新規 DB なので許容可能ですが、一度運用開始した後の minor 変更でも承認待ちデータが失われる設計です。migration persona としては、少なくとも読み取り専用 dump や list/export 手順がない点は移行計画として弱いです。
+    suggestion: |
+      v1 からの最低限の export/list 手順、または user_version mismatch 時に destructive recovery へ進む前の確認手順を docs に追加してください。
+    file: "plan.md"
+  - severity: medium
+    title: "CLI exit code 2 が予約されているが使われていない"
+    detail: |
+      CLI Contract 表は exit 2 の列を持っていますが、各サブコマンドでは未使用です。一方 approvals_executor.py は HERMES_APPROVAL_ID 未設定で return 2 としており、CLI と executor の契約が混ざって見えます。将来の呼び出し元が exit 2 の意味を誤解する余地があります。
+    suggestion: |
+      CLI の exit 2 を削除するか、usage/argument parse error として明示してください。executor の exit code とは別契約であることも docs に分けて書いてください。
+    file: "plan.md"

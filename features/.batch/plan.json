@@ -1,13 +1,13 @@
 {
   "mode": "loop",
   "batch_arg": null,
-  "batch_start_sha": "b271e6b69db0a0ce8bef7c1640ee994974aaca22",
-  "generated_at": "2026-06-23T07:50:24.797Z",
+  "batch_start_sha": "69d02ffeb64e9d923efc3291a372f7cf571d296f",
+  "generated_at": "2026-06-24T03:41:52.146Z",
   "issues": [
     {
-      "number": 2,
-      "title": "Email gateway: Gmail ポーリングで未読メール検知 → Discord 通知",
-      "slug": "email-gateway-gmail-discord",
+      "number": 3,
+      "title": "承認ゲート付き書き込み: Discord 承認で Calendar.create を一時解禁する基盤",
+      "slug": "discord-calendar-create",
       "labels": [
         "type:feature",
         "batch:feature"
@@ -22,7 +22,7 @@
       "order": 1,
       "deps": [],
       "issues": [
-        2
+        3
       ]
     }
   ]

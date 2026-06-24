@@ -1,0 +1,27 @@
+{
+  "framework": "python -m unittest + manual checklist",
+  "automated_tests": {
+    "framework": "unittest",
+    "file": "tests/test_approvals.py",
+    "run_command": "python3 -m unittest discover -s tests -v",
+    "result": "Ran 28 tests in 2.902s — OK (all pass)",
+    "test_groups": {
+      "ApprovalsStateMachineTest": ["T05", "T06", "T08", "T09", "T12", "T18", "T20", "T21", "T23", "T24", "T26", "T27"],
+      "SchemaVersionTest": ["T15"],
+      "ExtractToolCallsTest": ["case1", "case2", "T28", "case4_empty"],
+      "ExecutorMainTest": ["T29_success", "T29_double", "T29_other_tool", "T29_input_mismatch", "T29_zero_calls", "T29_is_error_with_one_call", "T29_is_error_with_zero_calls", "T29_evidence_unavailable", "T29_validate_failed"],
+      "CliContractTest": ["enqueue+get", "validate_failure_exit_1"]
+    }
+  },
+  "manual_check_required": true,
+  "test_spec_file": "features/3-discord-calendar-create/test-spec.md",
+  "manual_only_tests": ["T01_enqueue", "T02_approval_executes", "T03_approval_rejects", "T04_unauth_user", "T07_unknown_id", "T10_disallowed_unchanged", "T11a/b/c", "T13_db_path_consistency", "T14_systemd_run_failure", "T16_tool_use_count_violation", "T17a_ping", "T17b_mail_watch", "T19_handler_disabled_reservation", "T22_tool_use_input_mismatch", "T25_feature_flag_off"],
+  "smoke_results": {
+    "T10_disallowed_sha256": "c8ac848b9e7fcfae494151894bd4d8fc9654c6ad37281c1a1ac957f3c20d967b (unchanged)",
+    "T17a_ping": "PASS (exit 0, .result='稼働確認OK', cost=0.0980712)",
+    "T17b_mail_watch": "environment-dependent fail (Gmail label missing in worktree; production env unaffected)",
+    "bash_n_run_claude": "PASS",
+    "py_compile_all": "PASS (lib/approvals.py, lib/approvals_executor.py, gateway/discord/approval_handler.py, gateway/discord/bot.py, gateway/discord/config.py)"
+  },
+  "important_finding": "claude CLI v2.1.187 の --output-format json には tool_use の name/input が含まれない。extract_tool_calls() は実環境で常に空リスト [] を返し、executor は常に failed_after_side_effect に倒れる (fail-closed 設計通り)。詳細: features/3-discord-calendar-create/claude-cli-tool-use-evidence.md"
+}

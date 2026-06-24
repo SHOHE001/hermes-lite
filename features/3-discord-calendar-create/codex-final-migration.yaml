@@ -1,0 +1,29 @@
+verdict: fail
+blocking: 2
+persona: migration
+summary: |
+  migration 観点では、承認機能を有効化した既存運用で成功状態へ移行できないリスクと、既存 Discord 認可設定から承認者設定への移行不備が残っています。どちらも rollout 後に既存利用者の操作結果を変えるため blocking です。
+findings:
+  - severity: high
+    title: "現行 claude CLI では承認後の正常完了が常に failed_after_side_effect になる"
+    detail: |
+      追加された evidence 文書は、実測した claude CLI v2.1.187 の JSON 出力に tool_uses/messages/tool_use_count が存在せず、extract_tool_calls() が空リストを返すため executor から見ると常に create_calls == 0 になり failed_after_side_effect へ倒れる、と明記しています。これは T02 の期待値 row=executed と矛盾し、feature flag を有効化して承認しても既存運用者は成功として扱えず、毎回手動 cleanup が必要な警告状態になります。移行時の既存フローに対して機能が実質的に成功しないため high です。
+    suggestion: |
+      現行 CLI で成功判定可能な evidence 経路を実装するまで T02/ドキュメントを failed_after_side_effect 前提に修正するか、stream-json 等で tool_use input を取得して row=executed へ到達できることを自動/手動テストで確認してください。
+    file: "features/3-discord-calendar-create/claude-cli-tool-use-evidence.md"
+    line: 54
+  - severity: high
+    title: "ALLOWED_USER_IDS 既存環境から承認者設定への移行保証がコード上不明確"
+    detail: |
+      docs は HERMES_APPROVAL_AUTHORIZED_USER_IDS 未設定時に bot.py が ALLOWED_USER_IDS を HERMES_APPROVAL_ALLOWED_USER_IDS_FALLBACK として export すると説明していますが、提示された bot.py 追加ロジックにはその export が見えません。approval_handler.handle() は approvals.get_authorized_user_ids() で別環境変数を必須境界にするため、既存の ALLOWED_USER_IDS だけで運用している bot が feature flag を有効化すると、全員が unauthorized になる移行破壊が起き得ます。
+    suggestion: |
+      bot 起動時に ALLOWED_USER_IDS から HERMES_APPROVAL_ALLOWED_USER_IDS_FALLBACK を必ず設定する実装を追加し、ALLOWED_USER_IDS のみ設定された既存環境で approve できる回帰テストを追加してください。もしくは AUTHORIZED_USER_IDS 未設定なら approval 機能を明示的に無効化して起動ログと docs に必須 migration 手順を出してください。
+    file: "gateway/discord/bot.py"
+  - severity: medium
+    title: "diff に batch/loop の実行状態ファイルが混入している"
+    detail: |
+      features/.batch/plan.json、features/.loop/state.json、features/.dashboard.md が Issue #3 実装と一緒に更新されています。これらは承認機能の runtime/API 互換ではなくローカルな実行状態に見え、main に入ると次回 batch/loop の基準 issue や closed count が変わるため、既存開発運用の移行差分としてノイズになります。
+    suggestion: |
+      この Issue の成果物として必要な plan/test/evidence 以外のループ状態ファイルはコミット対象から外すか、生成物として追跡する方針なら別変更に分離してください。
+    file: "features/.loop/state.json"
+    line: 1

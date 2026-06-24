@@ -1,0 +1,41 @@
+verdict: fail
+blocking: 3
+persona: contrarian
+summary: |
+  現案は「承認後に安全に Calendar.create を一時解禁する」基盤というより、LLM に書かせた後で監査する仕組みに寄っており、Phase 1 の中核リスクを受け入れすぎています。より単純で決定的な executor を除外する根拠が弱く、LLM executor を採るなら失敗時の副作用・環境・検証をもっと厳密に設計する必要があります。
+findings:
+  - severity: high
+    title: "LLM executor は承認ゲートの中核目的を満たしていない"
+    detail: |
+      計画は `create_event` の多重呼び出し・入力改変・evidence 取得不能をすべて「副作用後検出」として扱うが、これは Calendar への誤書き込みを防ぐゲートではなく、誤書き込み後の検知です。信頼境界で「悪意ある攻撃者対策ではない」と限定しても、対象にしているはずの「Hermes-lite 自身の LLM が誤って Calendar に書き込む」ケースを防げていません。案 C を「大」として退けていますが、既存 MCP 経由の deterministic thin executor、または MCP 呼び出し専用の非 LLM ラッパーなど、Google API OAuth client ほど大きくない代替案の検討が欠けています。
+    suggestion: |
+      LLM executor を中止し、承認済み payload から決定的に Calendar create を 1 回だけ実行する executor を第一案にしてください。どうしても LLM executor を採るなら、この Issue のゴールを「防止」ではなく「検知付き実験」に下げ、Phase 1 の成功条件から安全な自動登録を外す必要があります。
+    file: "plan.md"
+  - severity: high
+    title: "proposer が Bash 全開放で、Non-Goals と安全境界を実質的に広げている"
+    detail: |
+      `jobs/approval-demo-proposer/job.env` は `ALLOWED_TOOLS=""` により Claude のデフォルト tool set を使わせ、Bash 自体を許可します。計画は「Bash ブロックをそのまま 1 度だけ実行」と書いていますが、これは LLM の遵守に依存しており、Calendar.create の承認ゲート設計とは別に任意 Bash 実行の広い挙動を導入しています。`mail-watch → proposer の自動橋渡し` は Out-of-Scope なのに、proposer ジョブ基盤と Bash 許可挙動の正当化が本文に大きく入り込んでおり、最小実装に反します。
+    suggestion: |
+      Phase 1 では proposer を LLM ジョブにせず、固定 JSON payload を投入する CLI/fixture に縮小してください。デモ用途なら `python3 lib/approvals.py enqueue ...` を人間が実行する形で十分で、Bash tool のデフォルト許可を設計前提にしないでください。
+    file: "plan.md"
+  - severity: high
+    title: "executor 起動環境が run-claude.sh と分裂しており、動作保証が不足している"
+    detail: |
+      承認後 executor は `systemd-run` から `/usr/bin/python3 lib/approvals_executor.py` を直接起動し、その中で `claude -p` を呼ぶ設計ですが、`bin/run-claude.sh` が既存ジョブに渡している環境、disallowed-tools、budget、timeout、model、ログ、通知まわりの契約を再利用していません。PATH と HERMES_HOME だけを渡しても、Claude/MCP の認証情報・設定ファイル・作業ディレクトリ・disallowed-tools の適用が既存ジョブと同等になる保証がありません。
+    suggestion: |
+      executor も `bin/run-claude.sh` 相当の共通 runner を使うか、`invoke_claude_p()` の完全な CLI contract と必要環境変数を plan に固定してください。少なくとも `--output-format json`、`--allowed-tools`、`--disallowed-tools`、timeout、model、MCP 設定の参照元を明記し、systemd-run 環境での smoke test を追加してください。
+    file: "plan.md"
+  - severity: medium
+    title: "事後検証のテストが手動 mock に偏り、最重要リスクの退行検出が弱い"
+    detail: |
+      T16/T22 は手動 mock、T28 は `extract_tool_calls None` のみで、`approvals_executor.main()` が `failed_after_side_effect` に落とす統合的な自動テストが不足しています。中核ロジックが executor 側にあるのに、自動テスト計画は state machine と CLI に寄っています。
+    suggestion: |
+      `invoke_claude_p` と `notify_discord` を差し替えた executor 自動テストを追加し、2 回呼び出し、別 tool 混入、input mismatch、is_error、result が `ERROR:` の各 status 遷移を検証してください。
+    file: "plan.md"
+  - severity: medium
+    title: "`failed_after_side_effect` の扱いが status 名と実態でずれている"
+    detail: |
+      `tool_use_count != 1` のうち 0 回呼び出しは副作用なしの可能性が高いのに、常に `failed_after_side_effect` としています。運用上は「手動 cleanup 要」と表示されるため、実際には event がないケースでも確認作業を強制します。
+    suggestion: |
+      `failed_unverified` のような別 status にするか、`side_effect_detected` と `side_effect_possible` を分けて result_text に保存してください。少なくとも 0 回呼び出しと evidence 取得不能を同じ説明にしないでください。
+    file: "plan.md"

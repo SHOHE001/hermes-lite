@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
 from collections import defaultdict
+from typing import Optional
 
 import discord
 
@@ -14,6 +16,9 @@ from config import (
     INPUT_CHANNEL_IDS,
     MAX_DISCORD_MESSAGE,
     SESSIONS_DB,
+    HERMES_HOME,
+    APPROVALS_DB,
+    APPROVAL_COMMANDS_ENABLED,
 )
 from session_store import SessionStore
 
@@ -31,6 +36,40 @@ intents.guild_messages = True
 client = discord.Client(intents=intents)
 store = SessionStore(SESSIONS_DB)
 locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
+
+# ---------------------------------------------------------------------------
+# 承認ゲート (Issue #3) — flag check の後に optional import / regex 初期化
+# ---------------------------------------------------------------------------
+
+_approval_handler = None  # type: Optional[object]
+_APPROVAL_PATTERN: Optional[re.Pattern] = None
+_sweep_task: Optional[asyncio.Task] = None
+
+if APPROVAL_COMMANDS_ENABLED:
+    # approval_handler 内部の get_authorized_user_ids() が fallback できるよう
+    # ALLOWED_USER_IDS を環境変数に export する (plan v6 Round 6 採用)
+    if ALLOWED_USER_IDS and not os.environ.get("HERMES_APPROVAL_ALLOWED_USER_IDS_FALLBACK"):
+        os.environ["HERMES_APPROVAL_ALLOWED_USER_IDS_FALLBACK"] = ",".join(
+            str(x) for x in ALLOWED_USER_IDS
+        )
+    _APPROVAL_PATTERN = re.compile(
+        r"^\s*approval\s+(approve|reject)\s+#?[a-f0-9]{8}\s*$",
+        re.IGNORECASE,
+    )
+    try:
+        import approval_handler  # type: ignore
+        _approval_handler = approval_handler
+        log.info(
+            "approval feature enabled (HERMES_HOME=%s APPROVALS_DB=%s)",
+            HERMES_HOME, APPROVALS_DB,
+        )
+    except Exception:
+        log.warning(
+            "approval_handler import failed; approval feature disabled "
+            "(reserved-word capture remains)",
+            exc_info=True,
+        )
+        _approval_handler = None
 
 
 def _scope_key(message: discord.Message) -> str | None:
@@ -120,11 +159,34 @@ async def _handle(message: discord.Message) -> None:
             await message.channel.send(chunk)
 
 
+async def _approval_sweep_loop() -> None:
+    """1 時間に 1 度、3 種類の sweep を呼ぶ."""
+    assert _approval_handler is not None
+    while True:
+        try:
+            swept_exp = await asyncio.to_thread(_approval_handler.sweep_expired)
+            swept_appr = await asyncio.to_thread(_approval_handler.sweep_stale_approved)
+            swept_exec = await asyncio.to_thread(_approval_handler.sweep_stale_executing)
+            if swept_exp or swept_appr or swept_exec:
+                log.info(
+                    "approval sweep: %d expired, %d stale-approved, %d stale-executing",
+                    swept_exp, swept_appr, swept_exec,
+                )
+        except Exception:
+            log.exception("approval sweep failed")
+        await asyncio.sleep(3600)
+
+
 @client.event
 async def on_ready() -> None:
+    global _sweep_task
     user = client.user
     log.info("logged in as %s (id=%s)", user, user.id if user else "?")
     log.info("allowed user ids: %s", ALLOWED_USER_IDS)
+    if APPROVAL_COMMANDS_ENABLED and _approval_handler is not None:
+        if _sweep_task is None or _sweep_task.done():
+            _sweep_task = client.loop.create_task(_approval_sweep_loop())
+            log.info("approval sweep loop started")
 
 
 @client.event
@@ -145,6 +207,29 @@ async def on_message(message: discord.Message) -> None:
                 message.author.id, type(message.channel).__name__,
             )
         return
+
+    # 承認ゲート (flag on のときだけ regex マッチを試す)
+    if APPROVAL_COMMANDS_ENABLED and _APPROVAL_PATTERN is not None:
+        stripped = _strip_mention(message.content)
+        if _APPROVAL_PATTERN.match(stripped):
+            if _approval_handler is None:
+                await message.channel.send(
+                    "⚠️ [WARN] approval feature disabled (import failed; see journalctl)"
+                )
+                return
+            try:
+                reply = await asyncio.to_thread(
+                    _approval_handler.handle, stripped, message.author.id
+                )
+            except Exception:
+                log.exception("approval handler crashed")
+                await message.channel.send(
+                    "⚠️ [WARN] approval 処理で内部エラー (journalctl 参照)"
+                )
+                return
+            await message.channel.send(reply)
+            return
+
     await _handle(message)
 
 

@@ -1,0 +1,21 @@
+{
+  "created_at": "2026-06-24T03:42:53.287Z",
+  "issue": 3,
+  "slug": "discord-calendar-create",
+  "phases": {
+    "design_review": "passed",
+    "acceptance_skeleton": "passed",
+    "core_impl": "passed",
+    "glm_impl": "pending",
+    "final_review": "passed",
+    "codex_review": "pending",
+    "merge": "pending"
+  },
+  "loops": {
+    "design_loops": 5,
+    "codex_loops": 1,
+    "glm_runs": 0
+  },
+  "raised_issues": [],
+  "updated_at": "2026-06-24T04:57:03.794Z"
+}
