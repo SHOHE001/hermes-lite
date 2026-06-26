@@ -1,0 +1,76 @@
+{
+  "framework": "manual checklist + integration harness",
+  "test_spec_file": "features/7-mail-watch-follow-up-wrapper-api-result-error-pref/test-spec.md",
+  "harness": "features/7-mail-watch-follow-up-wrapper-api-result-error-pref/test/run-harness.sh",
+  "command": "bash features/7-mail-watch-follow-up-wrapper-api-result-error-pref/test/run-harness.sh",
+  "automated_tests": "10 integration tests (T01..T10) via run-harness.sh",
+  "manual_check_required": false,
+  "summary": "ALL PASSED (10 tests)",
+  "tests": [
+    {
+      "id": "T01_default_compat",
+      "result": "PASS",
+      "verifies": "既存挙動互換: 通常本文 → OK 経路 + Discord 投稿 [<job>] <text>"
+    },
+    {
+      "id": "T02_empty_suppress",
+      "result": "PASS",
+      "verifies": "新変数 SUPPRESS_EMPTY_RESULT=1 + 空 result → stderr に 'empty result + SUPPRESS_EMPTY_RESULT=1 — skipping Discord post'、Discord 投稿なし"
+    },
+    {
+      "id": "T03_empty_default",
+      "result": "PASS",
+      "verifies": "後方互換: 空 result + SUPPRESS_EMPTY_RESULT 未設定 → '[<job>] (no result text)' を Discord 投稿"
+    },
+    {
+      "id": "T04_error_default",
+      "result": "PASS",
+      "verifies": "後方互換: 'ERROR:' 始まり + RESULT_ERROR_PREFIX 未設定 → FAIL 経路、stderr が exact 'FAIL via ERROR: prefix in result' (末尾 () 無し、grep 互換維持)"
+    },
+    {
+      "id": "T05_error_disabled",
+      "result": "PASS",
+      "verifies": "新変数 RESULT_ERROR_PREFIX='' で prefix 検出無効化 → 'ERROR:' 始まりが OK 経路に流れ、'[<job>] ERROR: stub fail' が Discord 投稿される"
+    },
+    {
+      "id": "T06_error_custom_prefix",
+      "result": "PASS",
+      "verifies": "カスタム prefix '[ERR]' → FAIL 経路、stderr exact 'FAIL via ERROR: prefix in result (\\[ERR\\])' (printf %q による shell-safe quote)"
+    },
+    {
+      "id": "T07_mail_watch_dryrun",
+      "result": "PASS",
+      "verifies": "Non-Goal: jobs/mail-watch/ が main から無変更 (git diff main -- jobs/mail-watch/ が空)"
+    },
+    {
+      "id": "T08_docs_review",
+      "result": "PASS",
+      "verifies": "docs/jobs-mail-watch.md の '通知漏れ回復' 旧記述削除、docs/wrapper-api.md に 10 変数行 + 新変数 2 個記載"
+    },
+    {
+      "id": "T09_suppress_bad_value",
+      "result": "PASS",
+      "verifies": "SUPPRESS_EMPTY_RESULT='2' (不正値) → silent false。既定挙動の '(no result text)' Discord 投稿"
+    },
+    {
+      "id": "T10_grep_compat",
+      "result": "PASS",
+      "verifies": "既存 stderr 文言 grep 互換: 'FAIL via ERROR' の repo 内ヒットが bin/run-claude.sh のみ (docs/, features/ 除外)。新変数 SUPPRESS_EMPTY_RESULT / RESULT_ERROR_PREFIX の既存 jobs/, features/ 衝突 0 件 (本 Issue の fixture 配下を除外)"
+    }
+  ],
+  "stderr_log_compat": {
+    "default_ERROR_prefix": "[run-claude] FAIL via ERROR: prefix in result",
+    "custom_prefix_example": "[run-claude] FAIL via ERROR: prefix in result (\\[ERR\\])",
+    "note": "既定 prefix 'ERROR:' のときは末尾の prefix 値表記なし (T04 で exact 検証)。カスタム時のみ printf %q で shell-safe quote 表記が付く (T06 で exact 検証)"
+  },
+  "compatibility_matrix": {
+    "OK_normal": "before=after: [<job>] <text>",
+    "OK_SUPPRESS_RESULT_IF_match": "before=after: 投稿なし",
+    "OK_empty_default": "before=after: [<job>] (no result text)",
+    "OK_empty_with_SUPPRESS_EMPTY_RESULT_1": "before=投稿: [<job>] (no result text), after=投稿なし (opt-in)",
+    "FAIL_default_ERROR_prefix": "before=after: [<job>] FAIL exit=0 + code-fenced 'ERROR: ...'",
+    "FAIL_custom_prefix": "新規: [<job>] FAIL exit=0 + code-fenced '<custom>: ...'",
+    "RESULT_ERROR_PREFIX_empty_with_ERROR_body": "before=FAIL 通知, after=OK 経路 [<job>] ERROR: ... (opt-out)",
+    "FAIL_via_exit_or_is_error": "before=after: [<job>] FAIL exit=N + code-fenced stderr tail"
+  }
+}

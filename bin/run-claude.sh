@@ -10,15 +10,17 @@
 #   - .env                                ... 共通設定（DISCORD_WEBHOOK_URL ほか）
 #   - lib/disallowed-tools.txt           ... 共通禁止ツールリスト
 #
-# job.env で上書きできる変数:
-#   ALLOWED_TOOLS    ... 空白区切り。disallowed と被ったらこちらが優先（claude CLI 仕様）
-#   MAX_TURNS        ... 既定 DEFAULT_MAX_TURNS
-#   TIMEOUT_SEC      ... 既定 DEFAULT_TIMEOUT_SEC
-#   MAX_BUDGET_USD   ... 既定 DEFAULT_MAX_BUDGET_USD（Max サブスク利用時は実害なし、保険）
-#   MODEL            ... 既定 DEFAULT_MODEL
-#   NOTIFY_RESULT    ... 1 にすると正常終了時に result を Discord 投稿
-#   NOTIFY_ON_ERROR  ... 1 にすると失敗時に概要を Discord 投稿（既定 1）
-#   SUPPRESS_RESULT_IF ... 最終応答が完全一致したら Discord 投稿をスキップ（opt-in）
+# job.env で上書きできる変数（詳細仕様は docs/wrapper-api.md 参照）:
+#   ALLOWED_TOOLS         ... 空白区切り。disallowed と被ったらこちらが優先（claude CLI 仕様）
+#   MAX_TURNS             ... 既定 DEFAULT_MAX_TURNS
+#   TIMEOUT_SEC           ... 既定 DEFAULT_TIMEOUT_SEC
+#   MAX_BUDGET_USD        ... 既定 DEFAULT_MAX_BUDGET_USD（Max サブスク利用時は実害なし、保険）
+#   MODEL                 ... 既定 DEFAULT_MODEL
+#   NOTIFY_RESULT         ... 1 にすると正常終了時に result を Discord 投稿
+#   NOTIFY_ON_ERROR       ... 1 にすると失敗時に概要を Discord 投稿（既定 1）
+#   SUPPRESS_RESULT_IF    ... 最終応答が完全一致したら Discord 投稿をスキップ（opt-in）
+#   SUPPRESS_EMPTY_RESULT ... 1 にすると空 result の "(no result text)" 投稿もスキップ（既定 0）
+#   RESULT_ERROR_PREFIX   ... RESULT_TEXT がこの prefix で始まる場合 FAIL 経路扱い（既定 "ERROR:"、空で無効化）
 #
 # ラッパー自体は失敗しても exit 0 で抜ける（systemd timer の連鎖を壊さないため）。
 
@@ -70,6 +72,14 @@ MODEL="$DEFAULT_MODEL"
 # 最終応答が完全一致したら Discord 投稿をスキップしたいジョブ向け（opt-in）。
 # 例: mail-watch は 0 件時に "[NOOP]" を返すので、job.env で SUPPRESS_RESULT_IF="[NOOP]" を設定する。
 SUPPRESS_RESULT_IF=""
+
+# 空 RESULT_TEXT のときの "(no result text)" 投稿を抑止するか。"1" のみ true（opt-in）。
+SUPPRESS_EMPTY_RESULT="0"
+
+# RESULT_TEXT がこの prefix で始まる場合に FAIL 経路扱いとする。
+# 既定 "ERROR:" は 4 job (mail-watch / goals-nudge / approval-demo-proposer / interview-mail-proposer) の既存契約。
+# 空文字に設定すれば検出を無効化できる。値内の [, *, ? 等のメタ文字は literal 扱い。
+RESULT_ERROR_PREFIX="ERROR:"
 
 if [[ -f "$JOB_ENV" ]]; then
   # shellcheck disable=SC1090
@@ -152,13 +162,23 @@ fi
 echo "$TS,$EXIT_CODE,${IS_ERROR:-},${COST_USD:-},${INPUT_TOKENS:-},${OUTPUT_TOKENS:-}" >> "$COST_CSV"
 
 # --- 通知 ---
-# RESULT_TEXT が "ERROR:" で始まる場合は claude プロセス自体は正常終了でも
+# RESULT_TEXT が RESULT_ERROR_PREFIX で始まる場合は claude プロセス自体は正常終了でも
 # 失敗扱いにする (例: prompt 側の fail-fast でラベル不在等)。
-if [[ "$EXIT_CODE" -eq 0 && "$IS_ERROR" != "true" && "$RESULT_TEXT" != ERROR:* ]]; then
+# RESULT_ERROR_PREFIX が空のときはこの判定を無効化する。
+# substring 比較で literal 一致を保証（pattern matching に依存しない）。
+_starts_with_error_prefix=0
+if [[ -n "$RESULT_ERROR_PREFIX" \
+    && "${RESULT_TEXT:0:${#RESULT_ERROR_PREFIX}}" == "$RESULT_ERROR_PREFIX" ]]; then
+  _starts_with_error_prefix=1
+fi
+
+if [[ "$EXIT_CODE" -eq 0 && "$IS_ERROR" != "true" && "$_starts_with_error_prefix" -eq 0 ]]; then
   echo "[run-claude] OK exit=0 cost=${COST_USD:-?} in=${INPUT_TOKENS:-?} out=${OUTPUT_TOKENS:-?}" >&2
   if [[ "$NOTIFY_RESULT" == "1" ]]; then
     if [[ -n "${SUPPRESS_RESULT_IF:-}" && "$RESULT_TEXT" == "$SUPPRESS_RESULT_IF" ]]; then
       echo "[run-claude] result matched SUPPRESS_RESULT_IF — skipping Discord post" >&2
+    elif [[ -z "$RESULT_TEXT" && "$SUPPRESS_EMPTY_RESULT" == "1" ]]; then
+      echo "[run-claude] empty result + SUPPRESS_EMPTY_RESULT=1 — skipping Discord post" >&2
     elif [[ -z "$RESULT_TEXT" ]]; then
       notify_discord "[$JOB_NAME] (no result text)"
     else
@@ -166,14 +186,19 @@ if [[ "$EXIT_CODE" -eq 0 && "$IS_ERROR" != "true" && "$RESULT_TEXT" != ERROR:* ]
     fi
   fi
 else
-  if [[ "$RESULT_TEXT" == ERROR:* && "$EXIT_CODE" -eq 0 && "$IS_ERROR" != "true" ]]; then
-    echo "[run-claude] FAIL via ERROR: prefix in result" >&2
+  if [[ "$_starts_with_error_prefix" -eq 1 && "$EXIT_CODE" -eq 0 && "$IS_ERROR" != "true" ]]; then
+    if [[ "$RESULT_ERROR_PREFIX" == "ERROR:" ]]; then
+      echo "[run-claude] FAIL via ERROR: prefix in result" >&2
+    else
+      printf '[run-claude] FAIL via ERROR: prefix in result (%q)\n' "$RESULT_ERROR_PREFIX" >&2
+    fi
   else
     echo "[run-claude] FAIL exit=$EXIT_CODE is_error=${IS_ERROR:-?}" >&2
   fi
   if [[ "$NOTIFY_ON_ERROR" == "1" ]]; then
     ERR_SNIPPET=""
-    if [[ "$RESULT_TEXT" == ERROR:* ]]; then
+    # 旧来 ERROR: prefix 互換: prefix を無効化していても RESULT_TEXT を採用する（データフロー分離）
+    if [[ "$_starts_with_error_prefix" -eq 1 || "$RESULT_TEXT" == ERROR:* ]]; then
       ERR_SNIPPET="$RESULT_TEXT"
     elif [[ -s "$ERR_LOG" ]]; then
       ERR_SNIPPET=$(tail -c 500 "$ERR_LOG")

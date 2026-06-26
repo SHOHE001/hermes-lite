@@ -28,6 +28,15 @@ features/.loop/last-cycle-marker
 features/.loop/*.pid
 features/.batch/lock
 
+# gloop-work レビュー実行の中間/結果ファイル（plan.md と rejection.md に判定要約を残せば十分）
+features/*/codex-design*.yaml
+features/*/codex-design*.yaml.verdict.json
+features/*/codex-final*.yaml
+features/*/codex-final*.yaml.verdict.json
+features/*/codex-input.md
+features/*/judgment-summary.md
+features/*/plan-snapshots/
+
 # Claude Code settings (gloop の hook が production 側 ~/hermes-lite/ に流れて
 # Discord bot の claude -p を guard で詰まらせるのを防ぐため、settings.json は
 # git 管理せず settings.json.example を雛形に各 clone がローカルで配置する)
