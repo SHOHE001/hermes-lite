@@ -1,0 +1,30 @@
+verdict: fail
+blocking: 1
+persona: architect
+summary: |
+  実装は前回の大きな構造問題をかなり潰していますが、検索パイプラインの内部表現が public contract とまだ一致していません。特に backslash を含む本文で、ユーザーが入力する自然な query と検索対象の表現がずれるため、抽出後テキスト検索という設計契約を満たせません。
+findings:
+  - severity: high
+    title: "backslash を含む抽出本文で fixed-string 検索が false negative になる"
+    detail: |
+      jq は 5 カラム TSV を `@tsv` で出力するため、本文中の backslash は `\\` にエスケープされます。`match_and_format` は表示前に sentinel 処理で復元していますが、検索判定はその後の `text` に対して行うため一見よさそうに見える一方、awk 文字列リテラルとしての `gsub(/\\/, "\x01", text)` / `gsub(/\x01/, "\\", text)` は mawk/gawk 方言差と replacement escape 解釈に依存します。この層が壊れると `-F '$HOME\.claude'` のような実本文基準の検索が表示仕様では見えるのに検索では落ちる構造です。設計上は『抽出後テキスト 1 ソースのみ』を検索対象にする契約なので、TSV transport の escape 復元を awk の正規表現置換に任せるのは境界が弱いです。
+    suggestion: |
+      検索判定用 text と TSV transport を分離してください。例えば jq 側で本文を base64 など lossless な単一列として運び、awk 前に明示復元する、または jq 側で検索判定まで完結させて出力だけ TSV にしてください。少なくとも backslash、literal `\t`、実 tab/newline が混在する本文で query が元本文基準に一致する fixture を追加してください。
+    file: "bin/session-search.sh"
+    line: 202
+  - severity: medium
+    title: "plan.md が旧骨格を大量に残しており実装境界の説明が二重化している"
+    detail: |
+      plan.md には per-file jq + awk wrapper、jq 段 gsub、`jq/awk/find` のみの依存など、現実の `xargs` バッチ実装と食い違う骨格が残っています。後段に『実装は性能のため一括 jq 化へ最適化済み』という注記はありますが、architect 観点では正の仕様と旧案が同じ文書内に並び、依存方向・エラー隔離・正規化責務の判断根拠が追いにくくなっています。
+    suggestion: |
+      旧骨格を履歴説明ではなく obsolete として畳むか、現行実装のデータフローだけを正本として再記述してください。特に依存一覧には `xargs` を含め、正規化責務が jq ではなく awk にあることを一箇所に統一してください。
+    file: "features/5-fts5-claude-projects-jsonl-grep/plan.md"
+    line: 66
+  - severity: medium
+    title: "CI green は T26 performance acceptance を証明していない"
+    detail: |
+      ci.log は機能 smoke の ALL PASS を示していますが、plan の merge 条件である T26 `実環境 ~/.claude/projects/ に対して 5 秒以内` の測定値がありません。今回の実装は性能理由で jq 起動境界や正規化責務を変えているため、T26 は単なる任意チェックではなくアーキテクチャ変更の成立条件です。
+    suggestion: |
+      ci.log か別ログに T26 の実行環境、対象サイズ、実測秒数を残してください。環境依存で CI に入れない場合でも、final artifact には acceptance を満たした証跡が必要です。
+    file: "features/5-fts5-claude-projects-jsonl-grep/ci.log"
+    line: 1

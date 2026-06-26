@@ -1,7 +1,7 @@
 {
-  "created_at": "2026-06-24T07:51:41.373Z",
-  "issue": 6,
-  "slug": "soul-md-1-append-system-prompt",
+  "created_at": "2026-06-26T06:27:59.505Z",
+  "issue": 5,
+  "slug": "fts5-claude-projects-jsonl-grep",
   "phases": {
     "design_review": "passed",
     "acceptance_skeleton": "passed",
@@ -9,13 +9,13 @@
     "glm_impl": "pending",
     "final_review": "passed",
     "codex_review": "pending",
-    "merge": "passed"
+    "merge": "pending"
   },
   "loops": {
-    "design_loops": 3,
-    "codex_loops": 1,
+    "design_loops": 5,
+    "codex_loops": 2,
     "glm_runs": 0
   },
   "raised_issues": [],
-  "updated_at": "2026-06-24T08:22:39.030Z"
+  "updated_at": "2026-06-26T07:33:15.312Z"
 }

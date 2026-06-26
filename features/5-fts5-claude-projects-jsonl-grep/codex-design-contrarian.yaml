@@ -1,0 +1,55 @@
+verdict: fail
+blocking: 3
+persona: contrarian
+summary: |
+  設計は「grep で十分」という Issue の簡単な解を、jq+awk の独自検索エンジンに置き換えており、性能・仕様・実装複雑性の正当化が不足しています。特に全件 jq パースを既定にする判断と public contract を --help のみに閉じる判断は、この規模の CLI として過剰かつ脆いです。
+findings:
+  - severity: high
+    title: "Issue の「grep 版」から外れて jq 全件パース検索に変質している"
+    detail: |
+      plan は FTS5 を避ける理由として「初期は grep でよい」を掲げていますが、実際の設計は grep も ripgrep も使わず、全 jsonl を jq で構造抽出して awk で検索する独自パイプラインです。これは「もっと簡単に書けるはず」という観点で過剰設計です。false negative 回避のため prefilter を消す判断も、全クエリで全行 JSON パースを強制するため、57MB という現在値に強く依存します。
+    suggestion: |
+      初版は `find ... -name '*.jsonl' -print0 | xargs -0 grep` 相当、または `jq` 抽出は `-F`/regex の必要ケースだけに限定する単純案を比較対象として明示してください。全件 jq パースを採るなら、grep 案を棄却する実測値と受け入れ基準を設計本文に置いてください。
+    file: "plan.md"
+  - severity: high
+    title: "性能 acceptance が後置きで、設計成立条件になっていない"
+    detail: |
+      T26 で 5 秒以内を merge 条件にしていますが、設計本文はすでに一段 jq パイプラインを前提として確定しています。実環境の `~/.claude/projects/` はユーザーごとに増え続けるため、57MB/218 files の実測だけでは将来の通常利用に耐える根拠になりません。性能超過時に『本 Issue 内で grep prefilter または FTS5 切替』と書いているため、実装後に設計を覆す分岐が残っています。
+    suggestion: |
+      先に代替案を明確にしてください。例: v1 は単純 grep 実装、構造抽出 jq 版は `--structured` オプションまたは follow-up。あるいはファイル数/総サイズごとの上限、超過時の明確な fallback を public contract に含めてください。
+    file: "plan.md"
+  - severity: high
+    title: "`--help` を唯一の public contract にするのは運用上不足している"
+    detail: |
+      README/CHANGELOG をスコープ外にして `--help` だけに exit code、escape、順序、DATE 空文字、読み取り不能ファイル skip まで完全記載する方針は、CLI の仕様として発見性とレビュー可能性が低いです。新規 public CLI を追加するにもかかわらず、既存利用者や将来の呼び出し元が差分から契約を追跡できません。
+    suggestion: |
+      最低限 `features/.../test-spec.md` に public contract 節を置き、`--help` と同じ内容を仕様としてレビュー可能にしてください。README を本当に触らないなら、その理由とリンク導線の代替を明記してください。
+    file: "plan.md"
+  - severity: medium
+    title: "SIGPIPE 対策の説明が実際の pipeline status と噛み合っていない"
+    detail: |
+      `set +o pipefail` の pipeline status は最後の `match_and_format` の終了コードになるため、上流 producer の SIGPIPE 141 は通常 rc に現れません。plan は `rc == 141` を正常化すると説明していますが、その条件は主に consumer が 141 で落ちた場合であり、『cap で exit した時のみ』という説明は不正確です。
+    suggestion: |
+      SIGPIPE 141 を吸収する理由と、どのプロセスの終了コードを観測しているのかを修正してください。producer error を public contract として無視するなら、141 分岐自体が必要か再検討してください。
+    file: "plan.md"
+  - severity: medium
+    title: "`jq @tsv` エスケープ後の文字列を検索対象にする仕様がユーザー直感に反する"
+    detail: |
+      public contract では SNIPPET が jq `@tsv` エスケープ後とされていますが、awk の検索対象 `$5` も同じエスケープ済み文字列です。そのため、ソース本文に含まれるバックスラッシュ列や制御文字周辺で、ユーザーが見たテキストと検索語の対応がずれる可能性があります。
+    suggestion: |
+      検索対象は正規化後プレーンテキスト、出力だけ TSV escape にする案を検討してください。bash/awk で TSV を運ぶために escape 済み文字列を内部表現にするなら、検索意味論にもその影響を明記してください。
+    file: "plan.md"
+  - severity: medium
+    title: "Non-Goals の『メタペイロード本文除外』が実装仕様に食い込みすぎている"
+    detail: |
+      tool_use/tool_result/attachment などをすべて除外する判断は安全側ですが、『前にあの話どこでしたっけ』という検索用途では tool_result 内の実行結果や添付由来テキストが重要になるケースがあります。初版で除外するのはよいとしても、なぜ検索できない方がよいのかの根拠が不足しています。
+    suggestion: |
+      単純案として `--include-tools` なしの初版にする、または除外理由を privacy/noise/performance のどれかに絞って明記してください。
+    file: "plan.md"
+  - severity: low
+    title: "テスト計画は多いが smoke-test の必須範囲が曖昧"
+    detail: |
+      T01-T29 と広い一方で、`smoke-test.sh` がどの ID を自動化するかが『主要ケース』に留まっています。CI 非統合ならなおさら、手動実行時に何が担保されるのか曖昧です。
+    suggestion: |
+      smoke-test で実装する ID を列挙し、未自動化の ID は test-spec 側の手動項目として分離してください。
+    file: "plan.md"

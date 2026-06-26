@@ -1,0 +1,34 @@
+verdict: fail
+blocking: 2
+persona: architect
+summary: |
+  設計の中心である「抽出後テキストだけを検索する」というデータフローと、実装骨格の実際の検索対象が一致していません。また、許容 awk 実装と `-i` の実装方針が衝突しており、public CLI の一部が環境依存で壊れます。
+findings:
+  - severity: high
+    title: "検索対象が抽出後テキストではなく jq @tsv エスケープ後文字列になっている"
+    detail: |
+      plan は「検索意味論は抽出後テキスト 1 ソースのみ」「false negative なし」と定義していますが、実装骨格では jq が `[timestamp,type,text] | @tsv` を出力し、その後 awk が `$5` を検索します。つまり検索対象は抽出テキストそのものではなく、`@tsv` により backslash などがエスケープされた表現です。コード片やパスのように `\` を含む本文では、ユーザーが見た文字列で検索しても内部表現差で false negative になり得ます。これは plan 自身のデータフロー契約と矛盾します。
+    suggestion: |
+      検索判定は @tsv 前の正規化済みテキストに対して行う設計に変更してください。例えば jq から TSV ではなく JSON object を出して jq 側で project/session を付与後に検索する、または text を base64 等で運んで awk 前に復元するなど、区切り形式と検索意味論を分離してください。
+    file: "plan.md"
+  - severity: high
+    title: "`awk` 依存契約が `-i` 実装と衝突している"
+    detail: |
+      依存では `awk（gawk または mawk）` としていますが、regex モードの case-insensitive 実装は `IGNORECASE = 1` に依存しています。`IGNORECASE` は少なくとも gawk 前提の機能であり、mawk を許容する設計と整合しません。結果として public flag の `-i` が許容環境の一部で期待通り動かない可能性があります。
+    suggestion: |
+      依存を `gawk` に固定するか、mawk 対応を維持するなら `-i` regex の仕様を再設計してください。例えば fixed-string のみ `-i` を保証し regex + `-i` は明示的に非対応にする、または別実装で正規表現評価を統一してください。
+    file: "plan.md"
+  - severity: medium
+    title: "SIGPIPE 設計説明が実際の pipeline status と食い違っている"
+    detail: |
+      `set +o pipefail` の pipeline では終了ステータスは最後の `match_and_format` のものになります。`-n` cap で awk が正常 exit した場合、上流 producer が SIGPIPE を受けても `$rc` は通常 0 であり、plan の「consumer 側 awk の異常終了（141 = SIGPIPE）」という説明は依存方向を取り違えています。実装意図は概ね達成できますが、設計文書としての根拠が不正確です。
+    suggestion: |
+      SIGPIPE は producer 側で発生し、`set +o pipefail` により無視される、という説明に修正してください。awk 自身の非 0 をどう伝播するかも `set -e` との関係を含めて明記してください。
+    file: "plan.md"
+  - severity: medium
+    title: "`@tsv` public contract が SNIPPET だけに限定されており検索仕様との境界が曖昧"
+    detail: |
+      help では SNIPPET が jq `@tsv` エスケープ後と説明していますが、実装骨格では検索判定自体も同じエスケープ後文字列に対して行われます。表示仕様と検索仕様が同じ内部表現に引きずられており、ユーザーが入力する QUERY は元本文基準なのか表示 SNIPPET 基準なのかが曖昧です。
+    suggestion: |
+      QUERY のマッチ対象を「元 JSON から抽出し、制御文字と連続空白だけを正規化したテキスト」と定義し、表示用 TSV エスケープは最終出力段だけに閉じ込めてください。
+    file: "plan.md"

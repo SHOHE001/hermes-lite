@@ -1,0 +1,48 @@
+verdict: fail
+blocking: 4
+persona: migration
+summary: |
+  新規CLI中心のplanだが、移行・互換性の観点では既存/旧形式JSONLと実行環境差分への耐性がまだ不足しています。特に awk 方言、実装とpublic contractの不一致、既存Claudeログ形式の欠落がそのまま利用不能やサイレント欠落につながります。
+findings:
+  - severity: high
+    title: "mawk対応を掲げているが `IGNORECASE` 依存で移植性が壊れる"
+    detail: |
+      依存に `awk（gawk または mawk）` と明記している一方、`match_and_format` は `if (ci) IGNORECASE = 1` に依存しています。`IGNORECASE` はgawk拡張であり、mawk環境では期待通りのcase-insensitive regex検索にならない可能性があります。これは `-i` のpublic APIが環境依存で壊れる移行リスクです。
+    suggestion: |
+      regexモードでも `ci` 時は `tolower(text) ~ tolower(query)` 相当に寄せる、または依存を明確に `gawk` のみに変更し、依存チェックも `gawk` を要求してください。
+    file: "plan.md"
+  - severity: high
+    title: "`--` のQUERY扱いが骨格実装と仕様で矛盾している"
+    detail: |
+      仕様では `session-search.sh -- '-foo'` をOKとしていますが、提示骨格の `getopts ":p:s:u:n:c:iFh-:"` と `-) case "$OPTARG" ...` は long option 用であり、単独 `--` の扱いが明示されていません。Bash getoptsでは `--` はオプション終端として処理される想定ですが、この実装方針のままでは T16 が実装差分で壊れやすく、先頭ハイフンQUERYの互換契約が曖昧です。
+    suggestion: |
+      `--` 終端の実挙動を前提にした最小実装を明記し、T16をsmoke-testに必須化してください。long option `--help` と終端 `--` の分岐を実装コードレベルで区別して示すべきです。
+    file: "plan.md"
+  - severity: high
+    title: "既存Claude JSONLの旧/変種形式に対する移行契約が不十分"
+    detail: |
+      user/assistantの `.message.content` の string/array は扱っていますが、既存Claudeログであり得る `message` 欠落、`content` がnull、array内text blockの `.text` がnull/非文字列、assistant thinkingの形式差分などをどこまで許容するかがpublic contractとテストで固定されていません。`jq`側は一部skipしますが、どの旧形式がサポート対象かが曖昧なため、既存ログからの検索漏れがサイレントに発生します。
+    suggestion: |
+      実サンプルまたはfixtureでサポート対象の旧形式を列挙し、非対応形式はNon-Goalsに明示してください。少なくとも `.message` 欠落、`.message.content=null`、text blockの非string値を含む退化テストを追加してください。
+    file: "plan.md"
+  - severity: high
+    title: "読み取り不能ファイルをwarningなしskipにする契約は既存ログ移行時の欠落を検知不能にする"
+    detail: |
+      public contractで「読み取り不能 jsonl は warning なしで skip」としています。既存 `~/.claude/projects` を横断検索する移行用途では、権限・壊れたsymlink・一時ファイルによる欠落が検索結果0件と区別できず、過去ログ検索ツールとして信頼性を落とします。exit codeに影響しないとしても、無警告skipは後方互換性確認や運用移行で重大な見落としになります。
+    suggestion: |
+      デフォルトでstderr warningを出す、または `--quiet` で抑制する設計にしてください。少なくとも `--help` とテストに「読めないファイルが存在した場合の観測可能な挙動」を含めるべきです。
+    file: "plan.md"
+  - severity: medium
+    title: "FTS5 Issue名に対して成果物名がgrep固定で将来移行パスが弱い"
+    detail: |
+      slugやディレクトリ名が `fts5-...-grep` で、CLI名は汎用 `session-search.sh` です。将来FTS5へ移行する場合、同じCLIを維持するのか、出力順序やsnippet仕様を維持するのかが未定義です。
+    suggestion: |
+      将来FTS5化しても維持するpublic contractと、変更可能な実装詳細を分離して明記してください。
+    file: "plan.md"
+  - severity: medium
+    title: "既存関数編集なしのためbefore/after N/Aは妥当だが、既存呼び出し元との衝突確認がない"
+    detail: |
+      新規ファイルのみなのでbefore/after不要という判断自体は成立します。ただし `bin/session-search.sh` という名前が既存スクリプト群の命名・PATH利用と衝突しないか、既存CIやpackagingが `bin/*` をどう扱うかの確認がありません。
+    suggestion: |
+      `bin/` 配下の既存列挙・実行規約に影響しないことを確認項目として追加してください。
+    file: "plan.md"

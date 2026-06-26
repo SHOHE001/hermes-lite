@@ -1,0 +1,22 @@
+verdict: fail
+blocking: 1
+persona: contrarian
+summary: |
+  主要な前回指摘は修正されていますが、xargs バッチ化の入れ方が `-n` 上限時の早期終了を実質的に無効化しており、大きいログでは CLI が必要以上に全件パースし続けます。単純な検索 CLI としては、出力上限を指定しても処理量が下がらないのは高リスクです。
+findings:
+  - severity: high
+    title: "`-n` 上限到達後も xargs/jq producer が走り続けるため大入力で打ち切り性能が崩れる"
+    detail: |
+      `main` は `set +o pipefail` の `emit_extracted | match_and_format` にしており、`match_and_format` は `c >= max` で exit します。しかし producer 側の `emit_extracted` は `find ... | xargs -0 -n "$BATCH_SIZE" jq ...` で、xargs は consumer の終了を観測して停止する設計ではありません。下流 awk が `-n 1` で終了しても、xargs/jq は stdout への write が失敗するまで次バッチを起動し得ますし、stderr は捨てられて producer status も pipefail 無効で無視されます。結果として `-n MAX` が「表示上限」にはなっても「処理打ち切り」にならず、T17/T26 のような性能 acceptance は小 fixture では通っても、実ログが増えた環境で `-n 1` が全候補 JSONL を jq パースする過剰実装になります。単純な検索 CLI なら上限指定時に早く返るべきで、今回の xargs 最適化が逆に早期終了の挙動を壊しています。
+    suggestion: |
+      producer を xargs 任せにせず、bash のバッチループで jq 出力を consumer に渡し、consumer 終了後に producer 側も停止できる構造にしてください。少なくとも `-n 1` で先頭付近にヒットがある大量 fixture に対して、後続ファイルが処理されないことを検証するテストを追加してください。
+    file: "bin/session-search.sh"
+    line: 270
+  - severity: medium
+    title: "`ci.log` の `ALL PASS` が性能条件 T26 を含まないまま強い成功表現になっている"
+    detail: |
+      plan では T26 を merge までの acceptance criterion として 5 秒以内としていますが、提示された `ci.log` は T26 の実測値を含まず `ALL PASS` で終わっています。今回の実装は性能上の判断が中心なので、T26 が未実行または別扱いなら `ALL PASS` は smoke の範囲に限定した表現にすべきです。
+    suggestion: |
+      `ci.log` に T26 の実測値と環境を残すか、`ALL SMOKE PASS; T26 not run` のように範囲を明示してください。
+    file: "features/5-fts5-claude-projects-jsonl-grep/ci.log"
+    line: 27

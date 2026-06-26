@@ -1,18 +1,18 @@
 {
   "mode": "loop",
   "batch_arg": null,
-  "batch_start_sha": "69d02ffeb64e9d923efc3291a372f7cf571d296f",
-  "generated_at": "2026-06-24T03:41:52.146Z",
+  "batch_start_sha": "8a47126200b6b72ebf2306bc4487435dbdbd0507",
+  "generated_at": "2026-06-26T06:27:27.681Z",
   "issues": [
     {
-      "number": 3,
-      "title": "承認ゲート付き書き込み: Discord 承認で Calendar.create を一時解禁する基盤",
-      "slug": "discord-calendar-create",
+      "number": 5,
+      "title": "FTS5 全セッション検索: ~/.claude/projects/ の JSONL を横断検索（grep 版から）",
+      "slug": "fts5-claude-projects-jsonl-grep",
       "labels": [
         "type:feature",
         "batch:feature"
       ],
-      "milestone": "Phase 1",
+      "milestone": "Phase 2",
       "flow": "full",
       "gate": "auto"
     }
@@ -22,7 +22,7 @@
       "order": 1,
       "deps": [],
       "issues": [
-        3
+        5
       ]
     }
   ]

@@ -1,0 +1,34 @@
+ok: T01_basic_hit (4 lines)
+ok: T02_no_match
+ok: T06_no_query
+ok: T07_help
+ok: T08_invalid_date
+ok: T12_invalid_n
+ok: T14_since_after_until
+ok: T15_no_false_positive_tool_use
+ok: T15b_no_meta_match
+ok: T16_query_dash_prefix
+ok: T17_max_results_exits_zero
+ok: T18_broken_jsonl
+ok: T20_no_projects_dir
+ok: T22_user_text_block
+ok: T27_invalid_regex
+ok: T29_assistant_string_content
+ok: T30_legacy_fail_safe
+ok: T03_project_filter (3 lines)
+ok: T04_date_range
+ok: T05_max_limit
+ok: T11_case_insensitive
+ok: T25_subagent_jsonl
+ok: T28_text_with_tab_newline
+ok: T31_non_iso_timestamp
+ok: T32_unreadable_file
+ok: T33_many_files
+ALL PASS
+
+=== T26 perf re-measure (Codex review loop 2) ===
+Environment: gen8 Linux, ~/.claude/projects/ (~58MB / 220 jsonl)
+-n 50  : 1.655s
+-n 1   : 0.093s  (xargs SIGPIPE early termination works)
+-n 100 : 1.838s
+T26_perf_acceptance: PASS (under 5s)

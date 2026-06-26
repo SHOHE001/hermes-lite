@@ -1,0 +1,38 @@
+verdict: fail
+blocking: 2
+persona: migration
+summary: |
+  移行観点では、Linux/GNU 前提が public contract に混入しており、既存環境で新 CLI がそのまま動かないリスクが残っています。特に `xargs -r` と producer 側エラーの握りつぶしは、ユーザーの既存ログ検索で失敗と0件を区別不能にします。
+findings:
+  - severity: high
+    title: "GNU xargs の `-r` 依存が未宣言で macOS/BSD 環境を壊す"
+    detail: |
+      `check_deps` は `xargs` の存在だけを確認していますが、実装は `xargs -0 -n "$BATCH_SIZE" -r ...` を使っています。`-r` は GNU xargs の拡張で、BSD/macOS xargs では未対応です。Claude Code の利用環境には macOS が普通に含まれるため、新規 CLI の public API が環境差分で起動不能になります。plan/help の依存にも GNU xargs 要件が書かれていません。
+    suggestion: |
+      `-r` を使わず、入力が空なら jq を呼ばないガードを shell 側で実装するか、依存を `GNU xargs` と明記して起動時に対応確認してください。移植性を保つなら `while read -d ''` のバッチ配列で jq を起動する実装が無難です。
+    file: "bin/session-search.sh"
+    line: 267
+  - severity: high
+    title: "producer 側の xargs/jq 失敗が exit 0 の空結果に化ける"
+    detail: |
+      main は `( set +o pipefail; emit_extracted | match_and_format; rc=$? )` なので、pipeline の終了ステータスは基本的に consumer の awk だけです。`xargs` 自体のオプション不一致、exec 失敗、列挙後にファイルが消える TOCTOU、jq の batch 失敗など producer 側の異常は stderr も `2>/dev/null` で消され、awk が空入力で exit 0 すると全体も成功扱いになります。既存ログ移行時に「検索対象がない」のか「検索処理が壊れた」のか判別できません。
+    suggestion: |
+      producer の失敗を観測可能にしてください。例えば一時ファイル/FD で producer status を回収する、xargs を使わず shell ループで jq の失敗を集約する、少なくとも jq/xargs の実行環境エラーは exit 1 にしてください。読み取り不能ファイルだけを silent skip する契約と、実行基盤の失敗は分離すべきです。
+    file: "bin/session-search.sh"
+    line: 283
+  - severity: medium
+    title: "実装済み依存に xargs が増えたが plan の依存説明とずれている"
+    detail: |
+      plan の依存節は `jq`, `bash`, `awk`, `find` を中心に説明していますが、実装の `check_deps` は `xargs` も必須化しています。新規依存自体は小さいものの、migration では導入先環境の事前確認対象が増えるため、仕様文と help に反映されていないのは運用上の抜けです。
+    suggestion: |
+      help と plan の依存節に `xargs` を追加し、必要なオプション互換性まで明記してください。
+    file: "bin/session-search.sh"
+    line: 78
+  - severity: medium
+    title: "テストログが移植性ケースを含んでいない"
+    detail: |
+      ci.log は多数ケースを通していますが、GNU/BSD xargs 差分、producer 側 jq/xargs 失敗、ファイル削除 TOCTOU のような移行時の実行環境差分を検証していません。T33_many_files は argv 分割だけを見ており、依存コマンド方言の検出にはなっていません。
+    suggestion: |
+      smoke では難しくても、test-spec に `xargs` 方言確認と producer failure の手動チェックを追加してください。可能なら `BATCH_SIZE=1` と削除済み symlink/権限変更 fixture で失敗が exit 1 になることを固定してください。
+    file: "features/5-fts5-claude-projects-jsonl-grep/ci.log"
+    line: 1

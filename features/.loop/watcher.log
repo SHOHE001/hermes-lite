@@ -1,0 +1,3 @@
+[2026-06-26T06:26:54.010Z] watcher started pid=2306660 worker=%15 poll=10s freeze=45min
+[2026-06-26T07:11:59.324Z] worker frozen for 45min. safe stop.
+[2026-06-26T07:11:59.385Z] watcher exiting

@@ -1,0 +1,31 @@
+{
+  "framework": "manual checklist + smoke-test.sh",
+  "project_type": "jobs",
+  "test_spec_file": "features/5-fts5-claude-projects-jsonl-grep/test-spec.md",
+  "automated_tests": {
+    "file": "features/5-fts5-claude-projects-jsonl-grep/smoke-test.sh",
+    "cases": ["T01", "T02", "T06", "T07", "T08", "T12", "T14", "T15", "T15b", "T16", "T17", "T18", "T20", "T22", "T27", "T29", "T30"],
+    "result": "ALL PASS (17/17)"
+  },
+  "manual_check_required": true,
+  "manual_cases": ["T03", "T04", "T05", "T09", "T10", "T11", "T13", "T19", "T21", "T23", "T24", "T25", "T28"],
+  "perf_acceptance": {
+    "id": "T26_perf_acceptance",
+    "target": "<=5s on real ~/.claude/projects/ (58MB / 220 jsonl files)",
+    "measured": "1.72s / 1.98s / 1.73s / 1.74s",
+    "result": "PASS"
+  },
+  "implementation_deviations": [
+    "jq filter syntax: 'fromjson? as $r' to '(fromjson?) as $r' (jq 1.7 compatibility)",
+    "emit_extracted: per-file jq fork -> single batched jq with input_filename to derive PROJECT/SESSION (performance: 36s -> 1.7s)",
+    "gsub control char normalization moved from jq side to awk side using SOH sentinel (avoids jq 1.7 Oniguruma overhead while preserving SNIPPET @tsv-escape spec)",
+    "precompile_filters: only exit code 3 (jq compile error) is fatal; runtime errors from jq -n (e.g. input_filename null) are ignored"
+  ],
+  "public_contract_invariants": [
+    "5-column TSV: PROJECT\\tDATE\\tSESSION\\tTYPE\\tSNIPPET",
+    "exit code: 0=ok, 1=env error, 2=usage/regex error",
+    "SNIPPET is jq @tsv-escaped (literal \\t/\\n sequences appear as \\\\t/\\\\n)",
+    "Output order: time-ascending within jsonl, undefined across jsonl",
+    "Unreadable jsonl: warning-less skip"
+  ]
+}

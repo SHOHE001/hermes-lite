@@ -3,7 +3,7 @@
 hermes-lite は NousResearch/hermes-agent の体験を Claude Max OAuth 枠の `claude -p` 経由で再現する自作プロジェクト。
 本ファイルは gloop が消化していくフェーズ・ゴールを定義する。
 
-## Phase 1: 受信→カレンダー半自動登録パイプライン 🚧
+## Phase 1: 受信→カレンダー半自動登録パイプライン ✅
 
 - Phase Milestone: `Phase 1`
 - Goal: メール（および将来 LINE 等）の受信を起点に、予定候補を抽出 → Discord で承認 → Google Calendar に登録、までを通すパイプラインを完成させる。

@@ -1,5 +1,5 @@
 {
-  "cycle": 3,
+  "cycle": 4,
   "recent_cycles": [
     {
       "cycle": 1,
@@ -26,11 +26,21 @@
       ],
       "merged_commits": 0,
       "pause_reason": null
+    },
+    {
+      "cycle": 4,
+      "started_at": "2026-06-24T08:23:38.327Z",
+      "ended_at": "2026-06-24T08:23:38.328Z",
+      "closed": [
+        3
+      ],
+      "merged_commits": 0,
+      "pause_reason": null
     }
   ],
   "cumulative": {
-    "cycles": 3,
-    "closed_issues": 1,
+    "cycles": 4,
+    "closed_issues": 2,
     "failures": 0
   }
 }
