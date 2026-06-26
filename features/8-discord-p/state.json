@@ -1,0 +1,23 @@
+{
+  "created_at": "2026-06-26T16:34:42.332Z",
+  "issue": 8,
+  "slug": "discord-p",
+  "phases": {
+    "design_review": "passed",
+    "acceptance_skeleton": "passed",
+    "core_impl": "passed",
+    "glm_impl": "pending",
+    "final_review": "passed",
+    "codex_review": "pending",
+    "merge": "pending"
+  },
+  "loops": {
+    "design_loops": 2,
+    "codex_loops": 3,
+    "glm_runs": 0
+  },
+  "raised_issues": [],
+  "updated_at": "2026-06-26T17:40:40.261Z",
+  "design_review": "passed",
+  "final_review": "passed"
+}

@@ -25,6 +25,31 @@ class SessionStore:
         ).fetchone()
         return row[0] if row else None
 
+    def get_updated_at(self, scope_key: str) -> int | None:
+        """updated_at 取得（idle 判定用）。
+
+        旧 schema や DB 異常で値が取れない場合は None を返し、呼び出し側で
+        idle 判定を無効化させる（誤発火回避、機能継続）。
+        """
+        try:
+            row = self._db.execute(
+                "SELECT updated_at FROM sessions WHERE scope_key = ?", (scope_key,)
+            ).fetchone()
+        except sqlite3.OperationalError:
+            # 防御策: 旧 schema で updated_at カラムが無い場合
+            return None
+        if not row or row[0] is None:
+            return None
+        val = row[0]
+        if isinstance(val, int):
+            return val
+        if isinstance(val, str):
+            try:
+                return int(val)
+            except ValueError:
+                return None
+        return None
+
     def set(self, scope_key: str, session_id: str) -> None:
         self._db.execute(
             "INSERT INTO sessions(scope_key, session_id, updated_at) VALUES(?,?,?) "

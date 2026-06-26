@@ -10,6 +10,7 @@ from typing import Optional
 import discord
 
 import claude_runner
+import compaction
 from config import (
     ALLOWED_USER_IDS,
     DISCORD_TOKEN,
@@ -121,16 +122,121 @@ def _split_for_discord(text: str, limit: int = MAX_DISCORD_MESSAGE) -> list[str]
     return chunks
 
 
-async def _run_with_resume(prompt: str, scope_key: str | None) -> claude_runner.RunResult:
+def _build_compaction_notice(
+    compact: compaction.CompactionResult,
+    result: claude_runner.RunResult,
+) -> str | None:
+    """status と result.ok を見て通知文を組み立てる。noop なら None."""
+    old_sid8 = (compact.meta.old_sid or "????????")[:8]
+    dropped_suffix = (
+        f" / ⚠️ サイズ超過のため古い履歴 {compact.meta.dropped_count} 件を要約から除外"
+        if compact.meta.dropped_count > 0
+        else ""
+    )
+    if compact.status == "summary_ok":
+        if result.ok and result.session_id:
+            return (
+                f"🧹 セッションをコンパクションしました（旧 sid: {old_sid8}）"
+                f"{dropped_suffix}"
+            )
+        return (
+            f"⚠️ 要約は作成しましたが新セッション起動に失敗しました"
+            f"（旧継続: {old_sid8}）"
+        )
+    if compact.status == "summary_failed":
+        return f"⚠️ コンパクション失敗（旧セッション継続: {old_sid8}）"
+    return None  # status == "noop"
+
+
+async def _run_with_resume(
+    prompt: str, scope_key: str | None
+) -> tuple[claude_runner.RunResult, str | None]:
     sid = store.get(scope_key) if scope_key else None
-    result = await claude_runner.run(prompt, sid)
+    updated_at = store.get_updated_at(scope_key) if scope_key else None
+
+    # compaction 判定 + 要約 subprocess は同期 io なので to_thread に逃がす
+    # hermes_home は config.HERMES_HOME を明示渡し（systemd で起動 cwd が変わる場合の
+    # compaction.py 側 fallback `Path(__file__).resolve().parents[2]` 依存を排除する。
+    # Codex architect H1 採用 / debug-spec 修正 1）。
+    compact = await asyncio.to_thread(
+        compaction.run_compaction,
+        sid,
+        session_updated_at=updated_at,
+        hermes_home=HERMES_HOME,
+    )
+
+    effective_prompt = compaction.build_effective_prompt(compact.prompt_prefix, prompt)
+
+    result = await claude_runner.run(effective_prompt, compact.resume_session_id)
+
     if result.invalid_resume and scope_key:
         log.warning("resume invalid for %s, retrying fresh", scope_key)
         store.delete(scope_key)
-        result = await claude_runner.run(prompt, None)
-    if result.ok and result.session_id and scope_key:
-        store.set(scope_key, result.session_id)
-    return result
+        # invalid_resume 時の再試行でも effective_prompt（prefix 含む）を渡す。
+        # 要約成功時の resume=None は通常 invalid_resume を起こさないが、
+        # ノーオペで old_sid invalid のパターンでも effective_prompt は prefix なし
+        # （prompt と等価）なので安全。要約消失を防ぐためここでは effective_prompt を渡す。
+        result = await claude_runner.run(effective_prompt, None)
+
+    # 初回 result（新セッション起動の成否）を別変数で保持する。
+    # 通知判定と追跡性ログはこの initial_result を使う。retry の成否は通知に影響させない
+    # ＝「⚠️ 旧継続」は initial_result が失敗である限り出続ける（store も旧 sid のまま）。
+    # Codex round 2 architect H1 / contrarian H1 / migration H1 採用 / debug-spec 修正 4。
+    initial_result = result
+    new_session_ok = (
+        compact.status == "summary_ok"
+        and initial_result.ok
+        and initial_result.session_id is not None
+    )
+
+    # 要約成功 + 本実行失敗 → 旧 sid で 1 回だけリトライ
+    # （Codex contrarian H1 採用 / debug-spec 修正 2）。
+    # 通知文「⚠️ 要約は作成しましたが新セッション起動に失敗しました（旧継続）」と
+    # 実挙動を整合させるため、旧 sid に対して raw prompt（prefix なし）で 1 回だけ再試行する。
+    # 旧 sid でも失敗した場合は retry 結果をそのまま返す（store は更新しない）。
+    if compact.status == "summary_ok" and not new_session_ok:
+        log.warning(
+            "compaction summary succeeded but follow-up run failed: scope=%s "
+            "old_sid=%s exit=%s — retrying on old session",
+            scope_key,
+            compact.meta.old_sid,
+            initial_result.exit_code,
+        )
+        compaction.mark_failed(compact.meta.old_sid)
+        if compact.meta.old_sid:
+            retry_result = await claude_runner.run(prompt, compact.meta.old_sid)
+            # 旧 sid で retry 成功なら、ユーザーには旧 sid の応答を返す。
+            # ただし通知は「旧継続」のまま、store も旧 sid のままにする
+            # （store.set は updated_at を最新に保つ目的のみ。新 lineage への切替ではない）。
+            if retry_result.ok and retry_result.session_id and scope_key:
+                store.set(scope_key, retry_result.session_id)
+            result = retry_result  # 応答として返すのは retry の result
+    elif initial_result.ok and initial_result.session_id and scope_key:
+        store.set(scope_key, initial_result.session_id)
+
+    # 通知判定は initial_result で固定する。retry 後の result は応答テキストにだけ使う。
+    # _build_compaction_notice の中身は無変更（status と result.ok の組合せで判定）。
+    notice_text = _build_compaction_notice(compact, initial_result)
+
+    # 追跡性ログも initial_result で判定する。
+    # WARNING は上の retry ブランチで既出のため、ここでは成功時の INFO のみ。
+    # new_sid は initial_result.session_id を採用（retry の session_id は新 lineage 確立では
+    # ないため、ログには含めない）。
+    if compact.status == "summary_ok" and new_session_ok:
+        log.info(
+            "compaction success scope=%s old_sid=%s new_sid=%s old_jsonl=%s "
+            "older_turns=%d recent_turns=%d trigger=%s dropped=%d",
+            scope_key,
+            compact.meta.old_sid,
+            initial_result.session_id,
+            compact.meta.old_jsonl,
+            compact.meta.older_count,
+            compact.meta.recent_count,
+            compact.meta.trigger_reason,
+            compact.meta.dropped_count,
+        )
+
+    return result, notice_text
 
 
 async def _handle(message: discord.Message) -> None:
@@ -149,11 +255,21 @@ async def _handle(message: discord.Message) -> None:
         )
         try:
             async with message.channel.typing():
-                result = await _run_with_resume(prompt, scope_key)
+                result, notice_text = await _run_with_resume(prompt, scope_key)
         except Exception:
             log.exception("unhandled error")
             await message.channel.send("⚠️ 内部エラー (journalctl 参照)")
             return
+
+        if notice_text:
+            try:
+                await message.channel.send(notice_text)
+            except discord.HTTPException:
+                log.warning(
+                    "could not send compaction notice (scope=%s)",
+                    scope_key,
+                    exc_info=True,
+                )
 
         for chunk in _split_for_discord(result.text):
             await message.channel.send(chunk)
