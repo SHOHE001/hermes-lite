@@ -1,0 +1,14 @@
+{
+  "status": 200,
+  "body": {
+    "id": "msg_fixture_200_other",
+    "type": "message",
+    "role": "assistant",
+    "model": "claude-sonnet-4-5",
+    "stop_reason": "max_tokens",
+    "content": [
+      {"type": "text", "text": "I will think about this carefully and"}
+    ],
+    "usage": {"input_tokens": 532, "output_tokens": 1024, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}
+  }
+}

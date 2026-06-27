@@ -1,0 +1,10 @@
+{
+  "status": 400,
+  "body": {
+    "type": "error",
+    "error": {
+      "type": "invalid_request_error",
+      "message": "Computer Use is not available for this account."
+    }
+  }
+}

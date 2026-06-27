@@ -1,0 +1,28 @@
+{
+  "created_at": "2026-06-26T17:44:10.813Z",
+  "issue": 10,
+  "slug": "phase-3-computer-use-api-claude-max-oauth-9",
+  "phases": {
+    "design_review": "passed",
+    "acceptance_skeleton": "passed",
+    "core_impl": "passed",
+    "glm_impl": "pending",
+    "final_review": "passed",
+    "codex_review": "passed",
+    "merge": "passed"
+  },
+  "loops": {
+    "design_loops": 4,
+    "codex_loops": 5,
+    "glm_runs": 0
+  },
+  "raised_issues": [
+    11
+  ],
+  "updated_at": "2026-06-27T07:04:20.070Z",
+  "warned_at": {
+    "design_loops.warn": "2026-06-27T06:24:01.122Z",
+    "codex_loops.warn": "2026-06-27T06:57:28.959Z",
+    "codex_loops.alert": "2026-06-27T07:02:32.295Z"
+  }
+}

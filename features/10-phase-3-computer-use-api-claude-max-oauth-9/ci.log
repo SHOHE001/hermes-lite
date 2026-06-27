@@ -1,0 +1,204 @@
+# CI log for #10 (manual checklist execution evidence)
+
+実行日: 2026-06-27 UTC
+実行者: gloop/orchestrator (autonomous)
+project_type: jobs (manual checklist + fixture classify script)
+
+## T01: Approach A (capability observation)
+
+Command: `bash features/10-phase-3-computer-use-api-claude-max-oauth-9/research/computer_use_probe.sh approach-a`
+
+Output:
+```json
+{"additional_turn_attempted": false, "approach": "A", "billing_delta_class": "not_applicable", "billing_observation": "not_applicable", "cli_help_has_betas_flag": true, "cli_probe_tool_use_observed": false, "console_checked_at": null, "console_window_minutes": 15, "elapsed_seconds": 6, "exit_code": 0, "notes": "docs_reachable=true cli_probe_ok=true", "outcome": "undetermined", "stage": "approach_a_complete", "sub_outcome": "capability_observation_only"}
+```
+
+Exit code: 0. PASS.
+
+## T09: cost_estimate.md ranges + assumptions + sensitivity present
+
+Verified by inspection (see `research/cost_estimate.md`). PASS.
+
+## T10: secret grep (Issue comments + research-log + research/ runtime logs)
+
+Command (post-update, expanded to full DoD scope):
+```
+gh issue view 10 --comments --json comments -q '.comments[].body' > /tmp/issue_10_comments.txt
+gh issue view 9 --comments --json comments -q '.comments[].body' > /tmp/issue_9_comments.txt
+find features/10-phase-3-computer-use-api-claude-max-oauth-9/research -maxdepth 1 -type f \
+  ! -name 'README.md' ! -name 'computer_use_probe.sh' ! -name 'computer_use_probe.py' \
+  ! -name 'cost_estimate.md' > /tmp/research_runtime_files.txt
+PATTERNS='<token_shapes_and_forbidden_substrings_pattern>'  # 詳細は test-spec.md T10 セクション参照（実際のパターンを ci.log に直接埋めると後続の secret scan で false positive を生む）
+grep -EH "$PATTERNS" /tmp/issue_10_comments.txt /tmp/issue_9_comments.txt \
+  features/10-phase-3-computer-use-api-claude-max-oauth-9/research-log.md \
+  $(cat /tmp/research_runtime_files.txt 2>/dev/null)
+```
+
+Targets:
+- issue #10 comments: 54 lines
+- issue #9 comments: 16 lines
+- research-log.md: 116 lines
+- research/ runtime logs: 0 件（probe stdout は `/tmp/probe_*.json` に書き出すフロー、リポジトリ配下に常駐させない）
+
+Detection patterns include:
+- Token shapes: `<api_key_prefix_pattern>`, `<jwt_pattern>`, `<bearer_hex_pattern>`
+- `<uuid_v4_pattern>` (account_uuid / x-request-id 値)
+- Home path: `<home_path_pattern>`
+- Literal forbidden substrings: `<authorization_header_pattern>`, `<set_cookie_pattern>`, `<x_request_id_header_pattern>`, `<account_uuid_keyword>`
+（実パターン全文は `test-spec.md` の T10 セクション参照）
+
+Result: `PASS: no leaks`
+
+## T10b: code dangerous output paths
+
+Command:
+```
+grep -nEH '(print|sys\.stdout\.write|sys\.stderr\.write|logging\.(debug|info|warn|error)|logger\.(debug|info|warn|error))\([^)]*(response\.(text|content)|\bheaders\b|\bAuthorization\b|\btoken\b|x-request-id)' \
+  features/10-phase-3-computer-use-api-claude-max-oauth-9/research/computer_use_probe.py \
+  features/10-phase-3-computer-use-api-claude-max-oauth-9/research/computer_use_probe.sh
+```
+
+Result: `PASS: no dangerous output paths`
+
+## T11: Issue 10 comments A/B/C/conclusion + #9 cross-post + follow-up #11
+
+Verified via `gh issue view 10 --comments` and `gh issue view 9 --comments`:
+- Issue #10 comments: A, B, C, conclusion, follow-up note (5 comments, all in allowlist JSON or summary form)
+- Issue #9: 1 cross-post comment
+- Follow-up Issue #11 created: "[Phase 3] #10 follow-up: Computer Use 再評価 (rate_limit 後リトライ)"
+
+## T13: 12 fixtures regression (post-update with 429_rate_limit fixture)
+
+Result: `T13 pass=12 fail=0` (all fixtures match B-2-a truth table including new 429 row → undetermined/rate_limited/exit 0).
+
+Per-fixture output (outcome/sub_outcome/exit_code):
+
+| fixture | outcome | sub_outcome | exit |
+|---|---|---|---|
+| 200_tool_use | conditional | tool_use_observed_but_billing_unknown | 0 |
+| 200_end_turn | conditional | messages_api_only | 0 |
+| 200_other_stop_reason | conditional | messages_api_only | 0 |
+| 400_beta_not_allowed | unsupported | beta_not_allowed | 0 |
+| 400_invalid_request_other | undetermined | probe_input_error | 0 |
+| 400_other_error_type | undetermined | probe_input_error | 0 |
+| 400_null_error_type | undetermined | probe_input_error | 0 |
+| 401_auth | undetermined | auth_failure | 0 |
+| 403_permission | unsupported | api_explicit_reject_after_auth | 0 |
+| 403_other | undetermined | auth_failure | 0 |
+| 5xx_timeout | undetermined | timeout | 0 |
+| 429_rate_limit | undetermined | rate_limited | 0 |
+
+## Live Approach B (executed, two live runs distinguishable)
+
+Command: `python3 features/10-phase-3-computer-use-api-claude-max-oauth-9/research/computer_use_probe.py approach-b`
+
+### Authoritative — post-update **live re-run** (probe.py 更新後に同一コマンドを再実行)
+
+実機 stdout JSON（fixture 経由ではなく、live 経由で取得した結果）:
+
+```json
+{"additional_turn_attempted": false, "approach": "B", "billing_delta_class": "not_applicable", "billing_observation": "not_applicable", "console_checked_at": null, "console_window_minutes": 15, "elapsed_seconds": 0, "exit_code": 0, "message_class": "other", "model_used": "claude-sonnet-4-5", "outcome": "undetermined", "redacted_error_type": "rate_limit_error", "stage": "approach_b_request", "status": 429, "stop_reason": null, "sub_outcome": "rate_limited", "tool_use_observed": false, "usage_token_counts": {}}
+```
+
+process status: `$?` = 0。実機 API は rate_limit window 内のため 429 が継続するが、probe.py の truth table 行 12 が稼働し `sub_outcome=rate_limited`, `exit_code=0` で安定的に分類される。**final_classification_source は本 live re-run の stdout JSON（authoritative）**。fixture 再分類は T13 の回帰検証のみに限定。
+
+### Superseded — pre-update **live initial run** (旧分類、履歴保持のみ)
+
+Initial output (probe.py 更新前: 429 を "その他 status" 行経由で network_error にマップ、2 回試行いずれも 429):
+```json
+{"additional_turn_attempted": false, "approach": "B", "billing_delta_class": "not_applicable", "billing_observation": "not_applicable", "console_checked_at": null, "console_window_minutes": 15, "elapsed_seconds": 0, "exit_code": 3, "message_class": "other", "model_used": "claude-sonnet-4-5", "outcome": "undetermined", "redacted_error_type": "rate_limit_error", "stage": "approach_b_request", "status": 429, "stop_reason": null, "sub_outcome": "network_error", "tool_use_observed": false, "usage_token_counts": {}}
+```
+
+Post-update reclassification (truth table 行 12 を追加した後、同じ入力 status=429 + error_type=rate_limit_error を `--classify-fixture fixtures/429_rate_limit.json` で再分類):
+```json
+{"additional_turn_attempted": false, "approach": "B", "billing_delta_class": "not_applicable", "billing_observation": "not_applicable", "console_checked_at": null, "console_window_minutes": 15, "elapsed_seconds": 0, "exit_code": 0, "message_class": "other", "model_used": "claude-sonnet-4-5", "outcome": "undetermined", "redacted_error_type": "rate_limit_error", "stage": "approach_b_request", "status": 429, "stop_reason": null, "sub_outcome": "rate_limited", "tool_use_observed": false, "usage_token_counts": {}}
+```
+
+最終分類: `undetermined / rate_limited`。Issue #11 で再実行予定。
+
+## Live Approach C (pricing fetch)
+
+Command: `bash features/10-phase-3-computer-use-api-claude-max-oauth-9/research/computer_use_probe.sh pricing`
+
+Authoritative output (post-update: Approach C は B 側 enum を流用せず `undetermined/usage_schema_unknown` で中立化、`notes` に実情を記録):
+```json
+{"additional_turn_attempted": false, "approach": "C", "billing_delta_class": "not_applicable", "billing_observation": "not_applicable", "console_checked_at": null, "console_window_minutes": 15, "elapsed_seconds": 1, "exit_code": 0, "notes": "pricing_url_fetch_ok=true informational_match_lines=2", "outcome": "undetermined", "stage": "approach_c_pricing_fetch", "sub_outcome": "usage_schema_unknown"}
+```
+
+PASS (pricing URL fetch successful, 情報取得のみ。outcome 体系には供しない参考情報)。
+
+Superseded (旧出力、B 側 enum を誤流用):
+```json
+{"approach": "C", "outcome": "conditional", "sub_outcome": "messages_api_only", "stage": "approach_c_pricing_fetch", "superseded": true}
+```
+
+## T13b: apply_console_confirmation composition regression (B-2-c verification)
+
+Command:
+```
+# Use 200_tool_use fixture as base, pipe through --apply-console-confirm for each delta enum
+for delta in incremented_subscription incremented_extra_usage no_change unknown; do
+  python3 .../computer_use_probe.py --classify-fixture .../fixtures/200_tool_use.json \
+    | python3 .../computer_use_probe.py --apply-console-confirm $delta --checked-at "2026-06-27T07:00:00Z"
+done
+# unsupported / undetermined no-op
+for fx in 403_permission 401_auth; do
+  python3 .../computer_use_probe.py --classify-fixture .../fixtures/${fx}.json \
+    | python3 .../computer_use_probe.py --apply-console-confirm incremented_subscription --checked-at "..."
+done
+```
+
+Results (B-2-c table と一致):
+
+| input | delta_class | expected outcome / sub_outcome / billing_observation | actual | pass |
+|---|---|---|---|---|
+| 200_tool_use | incremented_subscription | supported / tool_use_observed_and_subscription_billing / subscription_billing | supported / tool_use_observed_and_subscription_billing / subscription_billing | PASS |
+| 200_tool_use | incremented_extra_usage | conditional / extra_usage_billing / extra_usage_billing | conditional / extra_usage_billing / extra_usage_billing | PASS |
+| 200_tool_use | no_change | conditional / tool_use_observed_but_billing_unknown / console_confirmation_required | (同上) | PASS |
+| 200_tool_use | unknown | conditional / tool_use_observed_but_billing_unknown / console_confirmation_required | (同上) | PASS |
+| 403_permission | incremented_subscription | unsupported / api_explicit_reject_after_auth / not_applicable (no-op) | (同上) | PASS |
+| 401_auth | incremented_subscription | undetermined / auth_failure / not_applicable (no-op) | (同上) | PASS |
+
+T13b PASS 6/6。B-2-c 全行検証済み。
+
+## T12: state invariants (executed before STEP 8)
+
+Command:
+```
+jq -S . features/10-phase-3-computer-use-api-claude-max-oauth-9/state.json > /tmp/state_before.json
+node "$HOME/.claude/skills/gloop-work/scripts/state.mjs" set features/10-phase-3-computer-use-api-claude-max-oauth-9/state.json phases.final_review passed
+node "$HOME/.claude/skills/gloop-work/scripts/state.mjs" set features/10-phase-3-computer-use-api-claude-max-oauth-9/state.json phases.merge passed
+jq -S . features/10-phase-3-computer-use-api-claude-max-oauth-9/state.json > /tmp/state_after.json
+diff <(jq -S 'del(.updated_at, .phases.final_review, .phases.merge)' /tmp/state_before.json) \
+     <(jq -S 'del(.updated_at, .phases.final_review, .phases.merge)' /tmp/state_after.json)
+```
+
+Result: `T12 PASS: invariant keys preserved`
+
+Delta details:
+```
+14c14
+<     "final_review": "pending",
+---
+>     "final_review": "passed",
+16c16
+<     "merge": "pending"
+---
+>     "merge": "passed"
+22c22
+<   "updated_at": "...",
+---
+>   "updated_at": "..." (新時刻)
+```
+
+許可差分のみ（`updated_at`, `phases.final_review`, `phases.merge`）。全 top-level keys（`created_at`, `issue`, `slug`, `phases` の他サブキー, `loops.*`, `raised_issues`, `warned_at`）は保持。
+
+## Summary
+
+- T01 / T09 / T10 / T10b / T11 / T12 / T13 / T13b / Approach B (live re-run, rate-limited) / Approach C (live): すべて期待どおり実行完了
+- T02 系・T03〜T07 の **実機** ケース: 429 rate_limit により未到達 → fixture (T13) で代替検証
+- T08: probe.py の grep で B-1 分岐確認済み（実機 credentials 破壊なし、`known_containers` に `claudeAiOauth` 追加）
+- final_outcome: `undetermined / rate_limited`
+- **final_classification_source は post-update live re-run の stdout JSON のみ** (fixture は T13 回帰検証専用、最終判定根拠ではない)
+- merge passed = #10 は `undetermined/rate_limited` として終了。#9 着手は **#11 完了まで保留**（machine-readable: `test-summary.json` の `issue_9_recommendation="保留"` + `raised_issues=[11]`）
+- T10 grep pattern source: `test-spec.md` の T10 セクションが単一ソース（ci.log にはプレースホルダのみ記録、secret scan false positive 回避のため）

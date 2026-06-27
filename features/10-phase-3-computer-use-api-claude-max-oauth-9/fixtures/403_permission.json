@@ -1,0 +1,10 @@
+{
+  "status": 403,
+  "body": {
+    "type": "error",
+    "error": {
+      "type": "permission_error",
+      "message": "permission denied for Computer Use beta"
+    }
+  }
+}

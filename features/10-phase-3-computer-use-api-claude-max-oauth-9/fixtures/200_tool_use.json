@@ -1,0 +1,14 @@
+{
+  "status": 200,
+  "body": {
+    "id": "msg_fixture_200_tool_use",
+    "type": "message",
+    "role": "assistant",
+    "model": "claude-sonnet-4-5",
+    "stop_reason": "tool_use",
+    "content": [
+      {"type": "tool_use", "id": "toolu_fixture", "name": "computer", "input": {"action": "screenshot"}}
+    ],
+    "usage": {"input_tokens": 1532, "output_tokens": 47, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "summary": {
+    "framework": "manual checklist + fixture classify script (project_type: jobs)",
+    "test_spec_file": "features/10-phase-3-computer-use-api-claude-max-oauth-9/test-spec.md",
+    "ci_log_file": "features/10-phase-3-computer-use-api-claude-max-oauth-9/ci.log",
+    "automated_tests": "T13_classify_fixture (12/12 pass via --classify-fixture incl. 429_rate_limit)",
+    "manual_check_required": true,
+    "executed_t_ids": {
+      "T01": {"status": "pass", "evidence": "Approach A allowlist JSON (capability_observation_only)"},
+      "T09": {"status": "pass", "evidence": "cost_estimate.md ranges + sensitivity present"},
+      "T10": {"status": "pass", "evidence": "expanded grep over issue #10/#9 comments + research-log + research/ runtime logs, both token-shape patterns and literal forbidden substrings"},
+      "T10b": {"status": "pass", "evidence": "grep for print/log calls containing response/headers/Authorization/token/request-id"},
+      "T11": {"status": "pass", "evidence": "Issue #10 = 6 comments (A/B/C/conclusion/follow-up note/correction), Issue #9 = 2 comments (cross-post + correction), Issue #11 created as follow-up"},
+      "T12": {"status": "pass", "evidence": "jq -S normalized diff before/after state.mjs phase transitions; only updated_at + phases.final_review/merge permitted"},
+      "T13": {"status": "pass", "evidence": "12/12 fixtures match B-2-a truth table (rows 1..12), per-fixture outcome/sub_outcome/exit_code logged"},
+      "T13b_apply_console_confirmation": {"status": "pass", "evidence": "6/6 B-2-c composition rows verified: 200_tool_use + {incremented_subscription→supported, incremented_extra_usage→conditional/extra_usage_billing, no_change→conditional/tool_use_observed_but_billing_unknown, unknown→same} + unsupported/undetermined no-op (403_permission, 401_auth)"}
+    },
+    "skipped_or_alternate": {
+      "T02_supported_path": "実機 B が 429 rate_limit で 200+tool_use まで未到達。supported 経路 fixture は無いが、apply_console_confirmation の合成ロジックは B-2-c 表で定義済み",
+      "T02b_conditional_billing_unknown": "実機 B が 429。fixture (200_tool_use) で classify 結果は確認、console_confirmation_required の合成は B-2-c 行で carved out",
+      "T02c_conditional_extra_usage": "実機 B が 429、console 確認自体が到達不能",
+      "T03_conditional_messages_api": "fixture 200_end_turn / 200_other_stop_reason で代替検証 (T13 #2, #3)",
+      "T04a_unsupported_beta_not_allowed": "fixture 400_beta_not_allowed で代替 (T13 #4)",
+      "T04b_unsupported_permission": "fixture 403_permission で代替 (T13 #9)",
+      "T05_undetermined_auth": "fixture 401_auth / 403_other で代替 (T13 #8, #10)",
+      "T06_undetermined_timeout": "fixture 5xx_timeout で代替 (T13 #11)",
+      "T07_undetermined_probe_input": "fixture 400_invalid_request_other / 400_other_error_type / 400_null_error_type で代替 (T13 #5, #6, #7)",
+      "T08_undetermined_schema": "probe.py の grep 確認に加え、B-1 の known_containers リストに claudeAiOauth を追加して plan と整合。実機 credentials を破壊するテストは未実施（plan T08 で grep 確認を pass とする旨明記済み）"
+    },
+    "final_outcome": "undetermined",
+    "final_sub_outcome": "rate_limited",
+    "final_classification_source": "post-update live re-run stdout JSON (probe.py 更新後の `approach-b` 実機再実行で取得した stdout JSON、sub_outcome=rate_limited / exit_code=0)。fixture は T13 回帰検証用で final_outcome の根拠ではない（明確に分離）",
+    "three_way_decision": "判定不能",
+    "code_disposition": "keep (#9 で再利用前に再評価必須、research/README.md 末尾に明記)",
+    "issue_9_recommendation": "保留",
+    "raised_issues": [11],
+    "secret_grep_status": "PASS (T10 / T10b 共に PASS、対象範囲は plan の T10 仕様どおり)",
+    "state_invariants": "PASS (T12 実行済み、許可差分は updated_at + phases.final_review/merge のみ)",
+    "blocking_residuals": 0,
+    "supersede_history": [
+      {"item": "Approach B sub_outcome", "old": "network_error", "new": "rate_limited", "reason": "truth table 行 12 追加 (codex final round 1 指摘)"},
+      {"item": "Approach B exit_code", "old": 3, "new": 0, "reason": "rate_limited は受領済みレスポンスのため exit 0 (network 失敗ではない)"},
+      {"item": "Approach C sub_outcome", "old": "messages_api_only", "new": "usage_schema_unknown", "reason": "B 側 enum 流用を停止、参考情報専用に中立化 (codex final round 2 指摘)"}
+    ]
+  },
+  "failure_excerpts": []
+}

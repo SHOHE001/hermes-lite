@@ -1,0 +1,10 @@
+{
+  "status": 403,
+  "body": {
+    "type": "error",
+    "error": {
+      "type": "forbidden_error",
+      "message": "forbidden by oauth scope"
+    }
+  }
+}
