@@ -1,0 +1,32 @@
+{
+  "framework": "manual checklist",
+  "test_spec_file": "features/11-phase-3-10-followup-computer-use-retry/test-spec.md",
+  "automated_tests": "none",
+  "manual_check_required": true,
+  "checklist_items": 9,
+  "case_dependent_items": ["T04", "T06"],
+  "redaction_check": "pre_commit_grep_pass_post_commit_pending_by_design (STEP 8 で squash 後実施)",
+  "implementer_report": {
+    "probe_exit_code": 0,
+    "probe_sub_outcome": "rate_limited",
+    "case": "D",
+    "final_outcome": "undetermined",
+    "research_log_created": true,
+    "readme_updated": false,
+    "readme_update_reason": "Case D = non-terminal, per design 5-a",
+    "redaction_pre_commit": "pass",
+    "state_core_impl": "passed",
+    "commit_summary_1line": "outcome=undetermined sub_outcome=rate_limited case=D partial_observation"
+  },
+  "tests_passed": ["T01", "T02", "T03", "T04", "T05_pre", "T06", "T08", "T09_partial"],
+  "tests_pending_post_commit": ["T05_post", "T07", "T09_commit_count"],
+  "tests_pending_rationale": "design-time scheduled: post-commit checks require finalized squash commit hash; performed by orchestrator in STEP 8 prior to push",
+  "design_review_status": {
+    "rounds": 5,
+    "max_design_loops_light": 3,
+    "exceeded": true,
+    "discretionary_passed": true,
+    "remaining_blocking_findings": 6,
+    "rejection_md_path": "features/11-phase-3-10-followup-computer-use-retry/rejection.md"
+  }
+}
