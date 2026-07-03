@@ -204,4 +204,5 @@ NousResearch/hermes-agent の機能 (公式docs `user-guide/features/` 44本 + `
 | 1 | Discord gateway | ✅ コード完成 (要 bot 招待+systemd 登録) | `gateway/discord/` |
 | 2 | Skill 自動生成ループ | ✅ 常駐済 (Stop hook + cron) | `skills-loop/` |
 | 3 | Skill Curator (自動状態遷移のみ) | ✅ cron 登録済 (LLM consolidation OFF) | `skills-loop/bin/curator.py` |
+| 4 | SwitchBot 家電スケジュール (Issue #12) | 🟡 CLI 基盤 (`switchbot.py`/`sb-schedule`) 完成、Discord 自然文配線は人間の実機確認待ちで保留 | `lib/switchbot.py`, `bin/sb-schedule`, `docs/jobs-switchbot.md` |
 

@@ -1,0 +1,24 @@
+[Unit]
+Description=SwitchBot scheduled action: %i
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# __HERMES_HOME__ は sb-schedule がインストール時に実際の hermes-lite パスへ
+# 置換するプレースホルダー（%h/hermes-lite 決め打ちだと開発クローンと本番
+# クローンが別ディレクトリの環境で動かないため。sb-schedule の HERMES_HOME
+# 解決ロジックと揃える）。
+WorkingDirectory=__HERMES_HOME__
+# 共通認証情報 (.env: SWITCHBOT_TOKEN / SWITCHBOT_SECRET / DISCORD_WEBHOOK_URL)
+EnvironmentFile=__HERMES_HOME__/.env
+# スケジュール個別の引数 (SB_ARGS)。bin/sb-schedule add が生成する。
+EnvironmentFile=__HERMES_HOME__/var/switchbot-schedules/%i.env
+ExecStart=/usr/bin/env bash -c '\
+  source __HERMES_HOME__/lib/notify.sh; \
+  python3 __HERMES_HOME__/lib/switchbot.py $SB_ARGS \
+    || notify_discord "⚠️ SwitchBot schedule %i 失敗 (SB_ARGS=$SB_ARGS)"'
+# Hardening（既存 claude-agent@.service と同等）
+ProtectSystem=full
+PrivateTmp=true
+NoNewPrivileges=true

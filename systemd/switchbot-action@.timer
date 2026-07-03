@@ -1,0 +1,12 @@
+[Unit]
+Description=SwitchBot scheduled action timer: %i
+
+[Timer]
+# 既定はスケジュールなし。sb-schedule add が
+#   %h/.config/systemd/user/switchbot-action@<name>.timer.d/schedule.conf
+# に OnCalendar= を drop-in で書き込む。
+Persistent=true
+Unit=switchbot-action@%i.service
+
+[Install]
+WantedBy=timers.target

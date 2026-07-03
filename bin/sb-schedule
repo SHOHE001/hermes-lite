@@ -1,0 +1,210 @@
+#!/usr/bin/env bash
+# sb-schedule — SwitchBot 定型アクションの systemd --user timer を
+# 登録 / 一覧 / 削除する CLI（Issue #12）。
+#
+# 実体は systemd/switchbot-action@.{service,timer} テンプレート unit の
+# instance 化。ジョブ本体（HTTP 呼び出し）は lib/switchbot.py が担う。
+#
+# 使い方:
+#   sb-schedule add --name <name> --calendar "<OnCalendar式>" -- <switchbot.py 引数...>
+#   sb-schedule list
+#   sb-schedule remove --name <name>
+#
+# 例:
+#   毎朝7時に LED (deviceId=ABC123) を点灯:
+#     sb-schedule add --name led-morning --calendar "*-*-* 07:00:00" -- command ABC123 turnOn
+#   平日22時にエアコン暖房シーン (sceneId=xyz) を実行:
+#     sb-schedule add --name aircon-night --calendar "Mon..Fri *-*-* 22:00:00" -- scene xyz
+#
+# OnCalendar の書式は `man systemd.time` を参照（毎日/平日/毎週/毎月いずれも表現可能）。
+
+set -u
+
+# headless セッション（SSH の非ログインシェル等）では systemd --user のバス経路
+# (XDG_RUNTIME_DIR / DBUS_SESSION_BUS_ADDRESS) が env に無いことがある。
+# linger 有効なユーザーなら /run/user/<uid> は常時存在するのでこれで補う。
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+
+HERMES_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SCHEDULES_DIR="$HERMES_HOME/var/switchbot-schedules"
+SYSTEMD_USER_DIR="$HOME/.config/systemd/user"
+UNIT_INSTANCE_PREFIX="switchbot-action@"
+NAME_RE='^[a-zA-Z0-9_-]+$'
+
+usage() {
+  cat <<'EOF'
+usage:
+  sb-schedule add --name <name> --calendar "<OnCalendar式>" -- <switchbot.py 引数...>
+  sb-schedule list
+  sb-schedule remove --name <name>
+
+<switchbot.py 引数...> の例:
+  command <deviceId> turnOn
+  command <deviceId> turnOff
+  scene <sceneId>
+EOF
+}
+
+die() {
+  echo "sb-schedule: ERROR: $*" >&2
+  exit 1
+}
+
+validate_name() {
+  local name="$1"
+  [[ "$name" =~ $NAME_RE ]] || die "name は英数字・ハイフン・アンダースコアのみ使用可: '$name'"
+}
+
+ensure_template_installed() {
+  # repo のテンプレート unit を ~/.config/systemd/user/ へ常に上書きインストールする
+  # （呼び出すたびの repo 側修正を追従させるため、存在チェックはしない）。
+  # __HERMES_HOME__ プレースホルダーは実行時の HERMES_HOME に置換する。
+  # 開発クローン (~/プロジェクト/hermes-lite) と本番クローン (~/hermes-lite) が
+  # 別ディレクトリの環境でも正しいパスで unit が組まれるようにするため。
+  local src_service="$HERMES_HOME/systemd/switchbot-action@.service"
+  local src_timer="$HERMES_HOME/systemd/switchbot-action@.timer"
+  mkdir -p "$SYSTEMD_USER_DIR"
+  for f in "$src_service" "$src_timer"; do
+    [[ -f "$f" ]] || die "テンプレート unit が見つかりません: $f"
+  done
+  sed "s|__HERMES_HOME__|$HERMES_HOME|g" "$src_service" \
+    > "$SYSTEMD_USER_DIR/switchbot-action@.service"
+  cp "$src_timer" "$SYSTEMD_USER_DIR/switchbot-action@.timer"
+}
+
+cmd_add() {
+  local name="" calendar=""
+  local -a sb_args=()
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --name) name="$2"; shift 2 ;;
+      --calendar) calendar="$2"; shift 2 ;;
+      --) shift; sb_args=("$@"); break ;;
+      *) die "unknown option: $1（usage: sb-schedule add --name <n> --calendar <cal> -- <args...>）" ;;
+    esac
+  done
+
+  [[ -n "$name" ]] || die "--name は必須です"
+  [[ -n "$calendar" ]] || die "--calendar は必須です"
+  (( ${#sb_args[@]} > 0 )) || die "-- の後に switchbot.py 引数（例: command <id> turnOn）を指定してください"
+  validate_name "$name"
+
+  mkdir -p "$SCHEDULES_DIR"
+  local env_file="$SCHEDULES_DIR/$name.env"
+  if [[ -e "$env_file" ]]; then
+    die "既に同名のスケジュールがあります: $name（先に 'sb-schedule remove --name $name' してください）"
+  fi
+
+  ensure_template_installed
+
+  # SB_ARGS は "command DUMMYID turnOn" のように空白区切りの1文字列として
+  # env ファイルへダブルクォート付きで保存する（systemd EnvironmentFile と
+  # bash source の両方で1つの値として読める書式）。値に " ` $ \ が混じると
+  # 保存後の解釈が壊れるため、switchbot.py 引数としても想定外なので拒否する。
+  local arg
+  for arg in "${sb_args[@]}"; do
+    if [[ "$arg" == *'"'* || "$arg" == *'`'* || "$arg" == *'$'* || "$arg" == *'\'* ]]; then
+      die "引数に使用できない文字が含まれています（\" \` \$ \\ は不可）: $arg"
+    fi
+  done
+  local joined="${sb_args[*]}"
+  {
+    echo "# sb-schedule add --name $name で自動生成"
+    echo "SB_ARGS=\"$joined\""
+  } > "$env_file"
+
+  local instance="${UNIT_INSTANCE_PREFIX}${name}"
+  local dropin_dir="$SYSTEMD_USER_DIR/${instance}.timer.d"
+  mkdir -p "$dropin_dir"
+  {
+    echo "[Timer]"
+    echo "OnCalendar="
+    echo "OnCalendar=$calendar"
+  } > "$dropin_dir/schedule.conf"
+
+  systemctl --user daemon-reload || die "systemctl daemon-reload 失敗"
+  systemctl --user enable --now "${instance}.timer" \
+    || die "systemctl enable --now ${instance}.timer 失敗（journalctl --user -u ${instance}.timer で確認）"
+
+  echo "OK: 登録しました"
+  echo "  name:     $name"
+  echo "  calendar: $calendar"
+  echo "  args:     ${sb_args[*]}"
+  echo "  unit:     ${instance}.timer"
+}
+
+cmd_list() {
+  shopt -s nullglob
+  local files=("$SCHEDULES_DIR"/*.env)
+  shopt -u nullglob
+
+  if (( ${#files[@]} == 0 )); then
+    echo "(登録済みスケジュールなし)"
+    return 0
+  fi
+
+  printf '%-20s %-28s %-10s %s\n' "NAME" "CALENDAR" "ACTIVE" "ARGS"
+  local f name instance calendar active sb_args
+  for f in "${files[@]}"; do
+    name="$(basename "$f" .env)"
+    instance="${UNIT_INSTANCE_PREFIX}${name}"
+    sb_args=""
+    # shellcheck disable=SC1090
+    source "$f"
+    sb_args="${SB_ARGS:-}"
+
+    calendar="?"
+    local dropin="$SYSTEMD_USER_DIR/${instance}.timer.d/schedule.conf"
+    if [[ -f "$dropin" ]]; then
+      calendar="$(grep '^OnCalendar=' "$dropin" | tail -n1 | cut -d= -f2-)"
+    fi
+
+    active="$(systemctl --user is-active "${instance}.timer" 2>/dev/null || echo "unknown")"
+
+    printf '%-20s %-28s %-10s %s\n' "$name" "$calendar" "$active" "$sb_args"
+  done
+}
+
+cmd_remove() {
+  local name=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --name) name="$2"; shift 2 ;;
+      *) die "unknown option: $1（usage: sb-schedule remove --name <n>）" ;;
+    esac
+  done
+  [[ -n "$name" ]] || die "--name は必須です"
+  validate_name "$name"
+
+  local instance="${UNIT_INSTANCE_PREFIX}${name}"
+  local env_file="$SCHEDULES_DIR/$name.env"
+  local dropin_dir="$SYSTEMD_USER_DIR/${instance}.timer.d"
+
+  if [[ ! -f "$env_file" ]]; then
+    die "登録されていないスケジュールです: $name"
+  fi
+
+  systemctl --user disable --now "${instance}.timer" 2>/dev/null
+  rm -rf "$dropin_dir"
+  rm -f "$env_file"
+  systemctl --user daemon-reload
+
+  echo "OK: 削除しました: $name"
+}
+
+main() {
+  local sub="${1:-}"
+  [[ -n "$sub" ]] || { usage; exit 2; }
+  shift
+
+  case "$sub" in
+    add) cmd_add "$@" ;;
+    list) cmd_list "$@" ;;
+    remove) cmd_remove "$@" ;;
+    -h|--help|help) usage ;;
+    *) usage; die "unknown subcommand: $sub" ;;
+  esac
+}
+
+main "$@"
