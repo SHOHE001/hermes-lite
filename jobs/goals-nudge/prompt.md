@@ -10,7 +10,7 @@
 
 ## 利用できるツール（これら以外は使わない）
 
-- `Read` (絶対パス `/home/shohei/プロジェクト/hermes-lite/goals.md` を読むためだけに使う)
+- `Read` (絶対パス `/home/shohei/hermes-lite/goals.md` を読むためだけに使う)
 - `Bash` (`date +%Y-%m-%d` および日付計算用の `date -d ...` のみ。それ以外の shell コマンドは呼ばない)
 
 ## 手順
@@ -23,7 +23,7 @@ Bash tool で `date +%Y-%m-%d` を実行し、応答を `TODAY` として内部�
 
 ### 手順 2: `goals.md` を読む
 
-Read tool で **絶対パス `/home/shohei/プロジェクト/hermes-lite/goals.md`** を読む。
+Read tool で **絶対パス `/home/shohei/hermes-lite/goals.md`** を読む。
 
 - 環境変数や相対パスは使わない（Read tool は環境変数を展開しない）
 - **ファイルが存在しない / 読めない場合は、最終応答に `[NOOP]` だけを 6 文字で返して終了**（前後に空白・改行・コードフェンス・説明文を一切付けない、生の 6 文字 `[NOOP]` のみ）

@@ -9,7 +9,7 @@ systemd timer (Sun 20:00 JST)
   → bin/run-claude.sh goals-nudge
       → claude -p prompt.md
           → Bash で date +%Y-%m-%d を取得 (TODAY)
-          → Read で /home/shohei/プロジェクト/hermes-lite/goals.md を読む
+          → Read で /home/shohei/hermes-lite/goals.md を読む
           → 不在/読めない場合は最終応答 "[NOOP]" で終了
           → frontmatter と "最終 nudge 日:" 行を除去・無視してパース
           → 状態 active (trim+lowercase) のセクションだけ抽出
@@ -24,11 +24,11 @@ systemd timer (Sun 20:00 JST)
 ## 前提条件
 
 - **ホスト TZ が `Asia/Tokyo` であること**。`timedatectl` の出力に `Time zone: Asia/Tokyo (JST, +0900)` が含まれることを確認する。`OnCalendar=Sun *-*-* 20:00:00` は systemd user manager のローカル TZ で解釈されるため、TZ が異なると nudge の発火時刻がずれる
-- **gen8 以外で動かす場合は `jobs/goals-nudge/prompt.md` の絶対パス `/home/shohei/プロジェクト/hermes-lite/goals.md` を実環境の hermes-lite repo の絶対パスに書き換える必要がある**（claude の Read tool は環境変数や相対パスを展開しないため、ハードコード運用）
-- 本 docs 内のすべてのコマンド・パスは `HERMES_DIR=/home/shohei/プロジェクト/hermes-lite` を前提とする。別 checkout での運用は想定していない（prompt 内のハードコードと不整合になるため）
+- **gen8 以外で動かす場合は `jobs/goals-nudge/prompt.md` の絶対パス `/home/shohei/hermes-lite/goals.md` を実環境の hermes-lite repo の絶対パスに書き換える必要がある**（claude の Read tool は環境変数や相対パスを展開しないため、ハードコード運用）
+- 本 docs 内のすべてのコマンド・パスは `HERMES_DIR=/home/shohei/hermes-lite` を前提とする。別 checkout での運用は想定していない（prompt 内のハードコードと不整合になるため）
 
 ```bash
-HERMES_DIR=/home/shohei/プロジェクト/hermes-lite
+HERMES_DIR=/home/shohei/hermes-lite
 ```
 
 ## 事前セットアップ
@@ -143,7 +143,7 @@ systemctl --user disable --now claude-agent@goals-nudge.timer
 
 | 項目 | 値 |
 |---|---|
-| 読み取り対象 | `/home/shohei/プロジェクト/hermes-lite/goals.md`（絶対パス、prompt にハードコード） |
+| 読み取り対象 | `/home/shohei/hermes-lite/goals.md`（絶対パス、prompt にハードコード） |
 | 抽出条件 | `状態` が trim+lowercase で `active`（`状態` 欠落も active 扱い） |
 | 除外 | `状態: achieved` / `状態: paused`（大小文字は正規化） |
 | parse 失敗 | 許容値外の `状態`、または箇条書きゼロのセクション → `⚠ parse 失敗: <タイトル>` を本文に 1 行追加 |
