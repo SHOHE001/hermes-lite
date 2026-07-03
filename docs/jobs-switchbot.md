@@ -142,3 +142,66 @@ Discord から「今の室温は」と聞かれて答える別ジョブ（`jobs/
 3. `sb-schedule add` で実機に対して 1 本動作確認（LED on/off が実際に動くこと）。
 4. （保留機能）Discord 自然文 → `sb-schedule` 呼び出しの配線、および `claude -p` ヘッドレスからの
    Bash 実行権限の検証。
+
+## Discord 自然文配線の設計（保留機能・未実装）
+
+「Discord に自然文を投げると SwitchBot 操作になる」部分の設計メモ。実装は上記「人間必須の手順」
+1〜3 が終わり実機確認が取れてから着手する。決定済みの点と **要確認**（ユーザーに聞く必要がある点）を
+分けて記す（推測禁止ルール準拠）。
+
+### 全体像
+
+```
+Discord 「毎朝7時に電気つけて」
+  → gateway/discord（claude -p, cwd=~/hermes-lite, CLAUDE.md ロード済み）
+  → runner が意図を解釈:
+      即興（今つけて）      → その場で python3 lib/switchbot.py command <id> turnOn
+      定期（毎朝つけて）    → bin/sb-schedule add --name ... --calendar ... -- command <id> turnOn
+  → 実機 on/off（SwitchBot API v1.1）
+```
+
+### 決めるべき3つの軸
+
+#### 1. Bash 権限の解禁（技術的な核心・保留理由そのもの）
+
+現状 `gateway/discord/claude_runner.py` は `ALLOWED_TOOLS = ["WebSearch", "WebFetch"]` のみ。
+Bash 自体は `claude -p` の既定ツールだが、**ヘッドレス実行では承認プロンプトに応答できない**ため、
+allowlist に無い Bash 呼び出しは実行時に弾かれる（これが「Bash 実行権限の検証」の中身）。
+
+配線するには runner に以下いずれかを許可する必要がある:
+
+- 案A（最小権限）: `Bash(bin/sb-schedule:*)` と `Bash(python3 lib/switchbot.py:*)` だけを
+  `ALLOWED_TOOLS` に追加する。switchbot 以外の任意 Bash は引き続き弾かれる。**推奨**。
+- 案B（広い）: `Bash` を丸ごと許可。他ジョブと共通の runner なので影響範囲が広く、非推奨。
+
+→ 実装前に「案A の allowlist 形式で `claude -p` が実際に `bin/sb-schedule` を通すか」を
+最小テストで検証する（`claude -p --allowed-tools 'Bash(bin/sb-schedule:*)' ...` で1本叩く）。
+**allowlist のマッチ書式（`Bash(cmd:*)` か `Bash(cmd *)` か）が claude CLI の版で違う可能性があり、要実機確認。**
+
+#### 2. 「電気」「エアコン」→ ID の解決（要確認）
+
+runner は自然文の家電名を `deviceId` / `sceneId` に変換する必要がある。マップの置き場所が未決定。
+
+- 候補: `var/switchbot-devices.json`（人間が手順2の `devices`/`scenes` 出力を見て記入）。
+  例: `{"電気": {"kind":"device","id":"ABC123"}, "エアコン暖房": {"kind":"scene","id":"xyz"}}`
+  runner はこれを読んで解決し、未登録の名前は「その家電は未登録です」と返す。
+
+→ **要確認**: この JSON 方式でよいか / 家電の呼び名の揺れ（「電気」「照明」「ライト」）をどこまで吸収するか。
+
+#### 3. 即興実行と承認ゲートの扱い（要確認）
+
+Issue #12 には `gate:human-feel` ラベルが付いている。実世界の家電を勝手に on/off する操作なので、
+既存の Discord 承認ゲート基盤（コミット `a69fe14` の Calendar.create 承認と同じ仕組み）を通すか判断が要る。
+
+- 即興「今つけて」: 即実行してよいか、それとも「電気をつけます。OK?」と一度承認を挟むか。
+- 定期「毎朝つけて」: `sb-schedule add`（スケジュール登録）を承認ゲート必須にするか。
+
+→ **要確認**: gate:human-feel を「実行前に Discord で一度確認」と解釈してよいか。夜間の誤操作
+（寝室の電気を勝手に点ける等）のリスクを踏まえ、少なくとも即時実行系は承認を挟むのが無難だが決めるのはユーザー。
+
+### 実装順序（合意後）
+
+1. 軸1 の allowlist 書式を最小テストで確定 → `claude_runner.py` に switchbot 用 Bash を追加。
+2. 軸2 の名前→ID マップ（`var/switchbot-devices.json`）を実装、runner に解決ロジック。
+3. 軸3 の承認ゲート方針に沿って即興/定期の分岐を CLAUDE.md（または runbook）に行動規範として記述。
+4. Discord から「今つけて」「毎朝つけて」を1本ずつ実機で通し確認。
