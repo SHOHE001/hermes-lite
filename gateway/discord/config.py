@@ -15,6 +15,8 @@ ALLOWED_USER_IDS: list[int] = _parse_ids(os.environ.get("ALLOWED_USER_IDS", ""))
 INPUT_CHANNEL_IDS: list[int] = _parse_ids(os.environ.get("INPUT_CHANNEL_IDS", ""))
 TIMEOUT_SEC = int(os.environ.get("HERMES_DISCORD_TIMEOUT_SEC", "300"))
 CLAUDE_BIN = os.environ.get("CLAUDE_BIN", str(HOME / ".local" / "bin" / "claude"))
+# Discord runner が claude -p に渡すモデル。空文字なら --model を付けず CLI 既定に従う。
+MODEL = os.environ.get("HERMES_DISCORD_MODEL", "claude-opus-4-7").strip()
 
 SESSIONS_DB = Path(__file__).with_name("sessions.sqlite")
 
