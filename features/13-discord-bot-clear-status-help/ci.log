@@ -1,0 +1,10 @@
+=== python3 -m unittest tests.test_commands ===
+----------------------------------------------------------------------
+Ran 17 tests in 0.114s
+
+OK
+
+=== 退化 tests.test_approvals tests.test_switchbot ===
+Ran 39 tests in 3.085s
+
+OK
