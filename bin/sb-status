@@ -1,0 +1,112 @@
+#!/usr/bin/env python3
+"""sb-status — 家電マップ登録済みのデバイスをまとめて状態表示する（Issue #12）。
+
+runbook (docs/runbook-switchbot.md) の家電マップに沿って、
+温湿度計・電気（Ceiling Light）・カーテンを一括で問い合わせて
+人間可読に出す薄いラッパ。エアコンは IR 送信のみで状態が取れない
+（SwitchBot 側が状態を持たない）ため取得しない。
+
+使い方:
+    bin/sb-status              人間可読で全機器
+    bin/sb-status --json       全機器の生 status を JSON でまとめて
+    bin/sb-status <deviceId>   単一デバイス（switchbot.py status の薄いラッパ）
+
+exit 0 = 全機器成功。1機器でも取得失敗があれば exit 1（stderr にエラー明細）。
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+
+from switchbot import SwitchBotError, get_status  # noqa: E402
+
+DEVICES = [
+    ("温湿度計", "E96465BDC3F4"),
+    ("電気",     "E72A34313AB7"),
+    ("カーテン", "D7577389F460"),
+]
+
+
+def _fmt_line(label: str, status: dict) -> str:
+    dtype = status.get("deviceType", "")
+    if dtype == "WoIOSensor":
+        return (
+            f"{label:<8} 室温 {status.get('temperature', '?')}℃ / "
+            f"湿度 {status.get('humidity', '?')}%   電池 {status.get('battery', '?')}%"
+        )
+    if dtype == "Ceiling Light":
+        power = status.get("power", "?")
+        brightness = status.get("brightness", "?")
+        return f"{label:<8} {power.upper():<3}  明るさ {brightness}%"
+    if dtype == "Curtain":
+        pos = status.get("slidePosition", "?")
+        battery = status.get("battery", "?")
+        moving = "（動作中）" if status.get("moving") else ""
+        return f"{label:<8} position {pos} / 100   battery {battery}%{moving}"
+    return f"{label:<8} {json.dumps(status, ensure_ascii=False)}"
+
+
+def _collect() -> tuple[list[tuple[str, dict]], list[tuple[str, str]]]:
+    successes: list[tuple[str, dict]] = []
+    errors: list[tuple[str, str]] = []
+    for label, device_id in DEVICES:
+        try:
+            successes.append((label, get_status(device_id)))
+        except SwitchBotError as e:
+            errors.append((label, str(e)))
+    return successes, errors
+
+
+def _print_human(successes, errors) -> None:
+    for label, st in successes:
+        print(_fmt_line(label, st))
+    print(f"{'エアコン':<8} IR 送信のみ（SwitchBot 側で状態を保持しないため取得不可）")
+    for label, msg in errors:
+        print(f"{label:<8} 取得失敗: {msg}", file=sys.stderr)
+
+
+def _print_json(successes, errors) -> None:
+    payload = {
+        "devices": [
+            {"label": label, "status": st} for label, st in successes
+        ],
+        "aircon": {
+            "note": "IR 送信のみで状態取得不可",
+        },
+        "errors": [{"label": label, "message": msg} for label, msg in errors],
+    }
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+
+
+def main(argv: list[str] | None = None) -> int:
+    p = argparse.ArgumentParser(prog="sb-status", description=__doc__)
+    p.add_argument("--json", dest="as_json", action="store_true", help="JSON で出力")
+    p.add_argument("device_id", nargs="?", help="単一デバイスの status のみ取得")
+    args = p.parse_args(argv)
+
+    if args.device_id:
+        try:
+            st = get_status(args.device_id)
+        except SwitchBotError as e:
+            print(f"取得失敗: {e}", file=sys.stderr)
+            return 1
+        if args.as_json:
+            print(json.dumps(st, ensure_ascii=False, indent=2))
+        else:
+            print(st)
+        return 0
+
+    successes, errors = _collect()
+    if args.as_json:
+        _print_json(successes, errors)
+    else:
+        _print_human(successes, errors)
+    return 0 if not errors else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
