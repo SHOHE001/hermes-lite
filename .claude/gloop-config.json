@@ -28,7 +28,7 @@
     "watcher_poll_seconds": 10,
     "lock_retry_seconds": 30,
     "lock_ttl_hours": 12,
-    "worker_freeze_timeout_minutes": 45
+    "worker_freeze_timeout_minutes": 180
   },
   "notify": {
     "discord_webhook_env": "DISCORD_WEBHOOK_URL",
