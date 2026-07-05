@@ -37,6 +37,16 @@ _DEFAULT_MAX_BUDGET = os.environ.get("HERMES_EXECUTOR_MAX_BUDGET_USD", "0.50")
 _DEFAULT_MAX_TURNS = os.environ.get("HERMES_EXECUTOR_MAX_TURNS", "5")
 _DISCORD_WEBHOOK = os.environ.get("DISCORD_WEBHOOK_URL", "").strip()
 
+# claude 子プロセスへ渡さない秘密キー（prompt injection 経由の流出を断つ / 秘密の継承カット）。
+# gateway/discord/claude_runner.py にも同名の定数がある（gateway と lib の import 独立性のため重複定義）。
+# 本モジュール自身の notify_discord は上の _DISCORD_WEBHOOK を使い続け、子プロセス env だけを filter する。
+_SECRET_ENV_KEYS = frozenset({
+    "DISCORD_TOKEN", "DISCORD_WEBHOOK_URL", "ALLOWED_USER_IDS",
+    "INPUT_CHANNEL_IDS", "HERMES_APPROVAL_AUTHORIZED_USER_IDS",
+    # bot.py が起動時に ALLOWED_USER_IDS のコピーを別名で os.environ に載せるため同様に除外
+    "HERMES_APPROVAL_ALLOWED_USER_IDS_FALLBACK",
+})
+
 
 # ---------------------------------------------------------------------------
 # disallowed-tools.txt を読み、Calendar.create だけを除外したリストを返す
@@ -131,13 +141,15 @@ def invoke_claude_p(prompt: str) -> dict:
     if disallowed:
         cmd.append("--disallowed-tools")
         cmd.extend(disallowed)
+    child_env = {k: v for k, v in os.environ.items() if k not in _SECRET_ENV_KEYS}
+    child_env["CI"] = "1"
     try:
         proc = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
             timeout=_DEFAULT_TIMEOUT,
-            env={**os.environ, "CI": "1"},
+            env=child_env,
             cwd=str(_HERMES_HOME),
         )
     except subprocess.TimeoutExpired:

@@ -116,7 +116,7 @@ SUPPRESS_EMPTY_RESULT="1"
 | 変数 | 既定値 | 用途 |
 |---|---|---|
 | `CLAUDE_BIN` | `$HOME/.local/bin/claude` | `claude` バイナリのパス。プロセス環境からの override をサポート（`${CLAUDE_BIN:-default}` で参照）。harness では stub バイナリに差し替える |
-| `DISCORD_WEBHOOK_URL` | `.env` から `set -a; source .env` で承継 | Discord webhook URL。`.env` に書かれていれば process env を上書きする（`set -a` の挙動）。harness では `.env` 内で `https://stub.invalid` 等のダミー値に固定し、stub notify が payload を別ログにリダイレクトする |
+| `DISCORD_WEBHOOK_URL` | `.env` から source して同一シェルで参照 | Discord webhook URL。wrapper は `.env` を `source` し、同一シェルで動く `notify.sh` が shell 変数として読む（`set -a` は使わない = claude 子プロセスには渡さない）。harness では `.env` 内で `https://stub.invalid` 等のダミー値に固定し、stub notify が payload を別ログにリダイレクトする |
 
 ### `HERMES_HOME` の切替方法（env override 不可）
 
@@ -133,6 +133,10 @@ bash features/.../test/fixtures/hermes-home/bin/run-claude.sh <job>
 ```
 
 harness はこの間接切替に依拠する。`CLAUDE_BIN=stub` の env override と合わせて、本体ロジックを実走しつつ外部依存（claude バイナリ / Discord）を stub に置き換える。
+
+### 秘密キーの子プロセス継承カット（運用注記）
+
+`bin/run-claude.sh` は `.env` を `set -a` 無しで source するため、`.env` の値は claude 子プロセスの環境変数として渡らない（`HERMES_HOME` のみ意図的に export 済み）。Discord bot 経由（`gateway/discord/claude_runner.py`）と承認 executor（`lib/approvals_executor.py`）は自プロセス env に秘密を持つため、子プロセスへは denylist `_SECRET_ENV_KEYS`（`DISCORD_TOKEN` / `DISCORD_WEBHOOK_URL` / `ALLOWED_USER_IDS` / `INPUT_CHANNEL_IDS` / `HERMES_APPROVAL_AUTHORIZED_USER_IDS` / `HERMES_APPROVAL_ALLOWED_USER_IDS_FALLBACK`）を除外して渡す。**`.env` に新しい秘密キーを追加したら、この 2 ファイルの `_SECRET_ENV_KEYS` にも同じキーを追加すること**（両者は import 独立性のため定数を重複定義している）。
 
 ---
 

@@ -52,12 +52,11 @@ fi
 mkdir -p "$LOG_DIR"
 
 # --- 共通設定読み込み ---
-# set -a で .env 内の `KEY=value`（export 無し）も自動 export し、
-# claude subprocess に環境変数として承継させる。
+# .env は本シェル内でのみ参照し、claude 子プロセスへは環境変数として渡さない
+# （DISCORD_TOKEN 等の秘密が prompt injection 経由で流出する経路を断つ / 秘密の継承カット）。
+# notify.sh は同一シェルで source され、DEFAULT_* も同一シェル内の変数参照なので export は不要。
 # shellcheck disable=SC1091
-set -a
 source "$HERMES_HOME/.env"
-set +a
 # shellcheck disable=SC1091
 source "$HERMES_HOME/lib/notify.sh"
 
