@@ -60,3 +60,14 @@ class SessionStore:
 
     def delete(self, scope_key: str) -> None:
         self._db.execute("DELETE FROM sessions WHERE scope_key = ?", (scope_key,))
+
+    def __enter__(self) -> "SessionStore":
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self._db.close()
+
+    def close(self) -> None:
+        """sqlite3.Connection.close() は二重呼び出し安全なため冪等。close は terminal
+        （close 後の get/set/delete は使用しない）。"""
+        self._db.close()

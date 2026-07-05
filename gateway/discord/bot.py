@@ -10,6 +10,7 @@ from typing import Optional
 import discord
 
 import claude_runner
+import commands as slash_commands
 import compaction
 from config import (
     ALLOWED_USER_IDS,
@@ -324,29 +325,53 @@ async def on_message(message: discord.Message) -> None:
             )
         return
 
-    # 承認ゲート (flag on のときだけ regex マッチを試す)
-    if APPROVAL_COMMANDS_ENABLED and _APPROVAL_PATTERN is not None:
-        stripped = _strip_mention(message.content)
-        if _APPROVAL_PATTERN.match(stripped):
-            if _approval_handler is None:
-                await message.channel.send(
-                    "⚠️ [WARN] approval feature disabled (import failed; see journalctl)"
-                )
-                return
-            try:
-                reply = await asyncio.to_thread(
-                    _approval_handler.handle, stripped, message.author.id
-                )
-            except Exception:
-                log.exception("approval handler crashed")
-                await message.channel.send(
-                    "⚠️ [WARN] approval 処理で内部エラー (journalctl 参照)"
-                )
-                return
-            await message.channel.send(reply)
-            return
+    # mention を 1 度だけ剥がし、approval / slash 双方で同じ入力を使う
+    stripped = _strip_mention(message.content)
+    # approval の成立条件（enabled + pattern 存在 + match）は bot 側で bool に畳む
+    approval_match = bool(
+        APPROVAL_COMMANDS_ENABLED and _APPROVAL_PATTERN is not None
+        and _APPROVAL_PATTERN.match(stripped)
+    )
+    route = slash_commands.classify(stripped, approval_match)   # 引数は approval_match の1つ
 
-    await _handle(message)
+    if route == "approval":
+        if _approval_handler is None:
+            await message.channel.send(
+                "⚠️ [WARN] approval feature disabled (import failed; see journalctl)"
+            )
+            return
+        try:
+            reply = await asyncio.to_thread(
+                _approval_handler.handle, stripped, message.author.id
+            )
+        except Exception:
+            log.exception("approval handler crashed")
+            await message.channel.send("⚠️ [WARN] approval 処理で内部エラー (journalctl 参照)")
+            return
+        await message.channel.send(reply)
+        return
+
+    if route == "slash":
+        ctx = slash_commands.CommandContext(
+            scope_key=_scope_key(message),
+            author_id=message.author.id,
+            sessions_db=SESSIONS_DB,   # 既存 import 済み。live store ではなくパス
+            hermes_home=HERMES_HOME,   # 既存 import 済み
+        )
+        try:
+            reply = await asyncio.to_thread(slash_commands.dispatch, stripped, ctx)
+        except Exception:
+            log.exception("slash command crashed")
+            reply = slash_commands.COMMAND_ERROR_MESSAGE   # dispatch と同一定数（文言統一）
+        try:
+            await message.channel.send(reply)
+        except discord.HTTPException:
+            # /clear は DB 削除後に send だけ失敗し得る（状態は変更済み）。
+            # 既存 compaction notice（bot.py:264-272）と同じく warning を残し journalctl で追える形にする。
+            log.warning("could not send slash reply (route=slash)", exc_info=True)
+        return
+
+    await _handle(message)   # route == "handle"
 
 
 def main() -> None:

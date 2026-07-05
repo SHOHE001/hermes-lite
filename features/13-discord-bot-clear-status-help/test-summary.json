@@ -1,0 +1,9 @@
+{
+  "framework": "python unittest (system python3, discord 非依存)",
+  "test_file": "tests/test_commands.py",
+  "automated_tests": "T01-T16 (+T10b) = 17 tests, all passed",
+  "existing_regression": "tests.test_approvals + tests.test_switchbot = 39 passed (no regression)",
+  "manual_check_required": true,
+  "test_spec_file": "features/13-discord-bot-clear-status-help/test-spec.md",
+  "note": "bot.py は discord.py 依存のため system python3 では import 不可。bot.py の on_message ルーティングは classify() の自動テスト(T14)で内容分岐を、discord 依存部(_should_react/_scope_key)は手動 test-spec で担保。"
+}

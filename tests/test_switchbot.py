@@ -25,6 +25,23 @@ import switchbot  # noqa: E402
 
 _ENV = {"SWITCHBOT_TOKEN": "tok-123", "SWITCHBOT_SECRET": "sec-abc"}
 
+# テスト中は実 .env を絶対に読ませない（env を空にするテストが本物の認証情報を
+# 拾って実 API を叩くのを防ぐ）。存在しないパスへ差し替える。
+_dotenv_patcher = None
+
+
+def setUpModule():
+    global _dotenv_patcher
+    _dotenv_patcher = mock.patch.object(
+        switchbot, "_DOTENV_PATH", Path("/nonexistent/hermes-lite/.env")
+    )
+    _dotenv_patcher.start()
+
+
+def tearDownModule():
+    if _dotenv_patcher is not None:
+        _dotenv_patcher.stop()
+
 
 class _FakeResp:
     """urlopen が返す context manager の最小モック."""

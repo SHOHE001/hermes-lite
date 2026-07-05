@@ -32,11 +32,14 @@ import os
 import sys
 import time
 import uuid
+from pathlib import Path
 from typing import Any
 from urllib import request as urlrequest
 from urllib.error import HTTPError, URLError
 
 API_BASE = os.environ.get("SWITCHBOT_API_BASE", "https://api.switch-bot.com/v1.1")
+# 認証情報の .env フォールバック先（テストは存在しないパスへ差し替えて分離する）。
+_DOTENV_PATH = Path(__file__).resolve().parent.parent / ".env"
 # API 応答の statusCode == 100 が成功。それ以外はエラー扱い。
 _STATUS_OK = 100
 _HTTP_TIMEOUT_SEC = 15
@@ -46,8 +49,33 @@ class SwitchBotError(RuntimeError):
     """SwitchBot API 呼び出しに関わるすべての失敗（認証欠落・HTTP・API エラー）."""
 
 
+def _load_dotenv_creds() -> None:
+    """env に SWITCHBOT_TOKEN/SECRET が無ければ HERMES_HOME/.env から補う。
+
+    Discord runner（gateway/discord/claude_runner.py）は秘密キーを子プロセスの
+    env から除外する（prompt injection 経由の流出防止）。その運用下でも switchbot.py が
+    動くよう、env に無いときだけ .env を直接読んで補完する。env にある値は上書きしない。
+    """
+    if os.environ.get("SWITCHBOT_TOKEN") and os.environ.get("SWITCHBOT_SECRET"):
+        return
+    try:
+        lines = _DOTENV_PATH.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeError):
+        return
+    for line in lines:
+        s = line.strip()
+        if not s or s.startswith("#") or "=" not in s:
+            continue
+        key, _, val = s.partition("=")
+        key = key.strip()
+        if key not in ("SWITCHBOT_TOKEN", "SWITCHBOT_SECRET"):
+            continue
+        os.environ.setdefault(key, val.strip().strip('"').strip("'"))
+
+
 def _credentials() -> tuple[str, str]:
-    """token / secret を環境変数から取り出す。欠けていれば SwitchBotError。"""
+    """token / secret を環境変数（無ければ .env）から取り出す。欠けていれば SwitchBotError。"""
+    _load_dotenv_creds()
     token = os.environ.get("SWITCHBOT_TOKEN", "").strip()
     secret = os.environ.get("SWITCHBOT_SECRET", "").strip()
     missing = [
