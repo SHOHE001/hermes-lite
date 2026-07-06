@@ -12,6 +12,7 @@ import discord
 import claude_runner
 import commands as slash_commands
 import compaction
+import transport
 from config import (
     ALLOWED_USER_IDS,
     DISCORD_TOKEN,
@@ -103,24 +104,6 @@ def _strip_mention(content: str) -> str:
     if client.user is None:
         return content
     return re.sub(rf"<@!?{client.user.id}>", "", content).strip()
-
-
-def _split_for_discord(text: str, limit: int = MAX_DISCORD_MESSAGE) -> list[str]:
-    if not text:
-        return []
-    if len(text) <= limit:
-        return [text]
-    chunks: list[str] = []
-    rest = text
-    while len(rest) > limit:
-        cut = rest.rfind("\n", 0, limit)
-        if cut <= 0:
-            cut = limit
-        chunks.append(rest[:cut])
-        rest = rest[cut:].lstrip("\n")
-    if rest:
-        chunks.append(rest)
-    return chunks
 
 
 def _build_compaction_notice(
@@ -272,7 +255,7 @@ async def _handle(message: discord.Message) -> None:
                     exc_info=True,
                 )
 
-        for chunk in _split_for_discord(result.text):
+        for chunk in transport.split_for_discord(result.text, MAX_DISCORD_MESSAGE):
             await message.channel.send(chunk)
 
 
@@ -364,7 +347,7 @@ async def on_message(message: discord.Message) -> None:
             log.exception("slash command crashed")
             reply = slash_commands.COMMAND_ERROR_MESSAGE   # dispatch と同一定数（文言統一）
         try:
-            await message.channel.send(reply)
+            await transport.send_chunks(message.channel.send, reply, MAX_DISCORD_MESSAGE)
         except discord.HTTPException:
             # /clear は DB 削除後に send だけ失敗し得る（状態は変更済み）。
             # 既存 compaction notice（bot.py:264-272）と同じく warning を残し journalctl で追える形にする。

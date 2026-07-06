@@ -18,7 +18,7 @@ from .types import (
     UNKNOWN_COMMAND_MESSAGE,
     COMMAND_ERROR_MESSAGE,
 )
-from . import clear, status, help as help_mod   # __init__ → handlers（一方向）
+from . import clear, home, status, help as help_mod   # __init__ → handlers（一方向）
 
 log = logging.getLogger("hermes-lite.discord.commands")
 
@@ -27,6 +27,7 @@ _COMMAND_RE = re.compile(r"^/([A-Za-z][A-Za-z0-9_-]*)(?:\s+(.*))?$", re.DOTALL)
 COMMANDS: dict[str, Command] = {}
 COMMANDS["clear"] = Command("clear", "セッションをクリア", clear.clear_handler)
 COMMANDS["status"] = Command("status", "gloop の状態を表示", status.status_handler)
+COMMANDS["home"] = Command("home", "家電状態一覧を表示 (sb-status)", home.home_handler)
 COMMANDS["help"] = Command(
     "help", "コマンド一覧を表示", lambda ctx, args: help_mod.render_help(COMMANDS)
 )
