@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
@@ -50,14 +51,25 @@ def _fmt_line(label: str, status: dict) -> str:
     return f"{label:<8} {json.dumps(status, ensure_ascii=False)}"
 
 
+def _fetch(item: tuple[str, str]) -> tuple[str, dict | None, str | None]:
+    label, device_id = item
+    try:
+        return label, get_status(device_id), None
+    except SwitchBotError as e:
+        return label, None, str(e)
+
+
 def _collect() -> tuple[list[tuple[str, dict]], list[tuple[str, str]]]:
+    # 全デバイスへ並列に問い合わせる（直列だと API レイテンシ × 台数分待たされる）。
+    # ex.map は DEVICES の順序を保って返す。
     successes: list[tuple[str, dict]] = []
     errors: list[tuple[str, str]] = []
-    for label, device_id in DEVICES:
-        try:
-            successes.append((label, get_status(device_id)))
-        except SwitchBotError as e:
-            errors.append((label, str(e)))
+    with ThreadPoolExecutor(max_workers=len(DEVICES)) as ex:
+        for label, status, err in ex.map(_fetch, DEVICES):
+            if err is None:
+                successes.append((label, status))
+            else:
+                errors.append((label, err))
     return successes, errors
 
 
