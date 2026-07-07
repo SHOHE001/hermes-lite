@@ -73,11 +73,11 @@ NousResearch/hermes-agent の機能 (公式docs `user-guide/features/` 44本 + `
 
 | 機能 | 採否 | 規模 | 依存 | 備考 |
 |---|---|---|---|---|
-| Voice mode (STT→claude→TTS) | 🟢 採用候補 | 中 | openai-whisper local + edge-tts | gen8 CPU で whisper-tiny〜small なら現実的 |
+| Voice mode (STT→claude→TTS) | 🔴 不要 | — | — | Aqua Voice を利用中のため不要と判断 (2026-07-08 ユーザー判断) |
 | Vision (画像理解) | 🟢既存 | — | — | claude -p に画像パスで動く |
 | Browser (playwright) | 🟢既存 | — | — | playwright MCP 既設 |
 | Computer use | 🟡 条件付き | 中 | Max OAuth で computer use tool が許可されるか要検証 | Claude Code 経由なら通る可能性高 |
-| TTS (高品質) | 🟢 採用候補 | 小-中 | edge-tts (無料) or coqui-tts | Voice mode の一部として |
+| TTS (高品質) | 🔴 不要 | — | — | Voice mode ごと不要判定 (2026-07-08) |
 | Web search | 🟢既存 | — | — | Claude Code WebSearch |
 | X (Twitter) search | 🟡 条件付き | 中 | X API キー (有料) | 必要性次第 |
 | Image generation | 🔴 不可 | — | — | Anthropic native生成なし。外部API課金前提なので除外 |
@@ -168,8 +168,8 @@ NousResearch/hermes-agent の機能 (公式docs `user-guide/features/` 44本 + `
 9. **Skill 自動生成ループ** — Stop hook で skill md 自動生成
 10. **Skill Curator (7日サイクル)** — cron + claude -p で skill 整理
 11. **FTS5 session search** — jsonl を sqlite で全文検索
-12. **Voice mode** — whisper local + edge-tts
-13. **TTS (高品質)** — Voice mode の一部
+12. ~~Voice mode~~ — 不要判定 (Aqua Voice 利用中、2026-07-08)
+13. ~~TTS (高品質)~~ — Voice mode ごと不要判定
 14. **Spotify** — やる気次第
 
 ### 大 (週単位)
@@ -190,7 +190,7 @@ NousResearch/hermes-agent の機能 (公式docs `user-guide/features/` 44本 + `
 4. ~~Skill Curator~~ ✅ **完成** (2026-06-20、LLM consolidation OFF) — 週次 cron 登録済
 5. **FTS5 session search** (中) — 過去会話の自己照会、`log` スキルとも噛み合う
 6. **Cron ラッパー強化 / Goals** (小) — 上記が一通り動いてから整える
-7. **Voice mode** (中) — 余力で
+7. ~~Voice mode~~ — 不要判定 (Aqua Voice 利用中、2026-07-08)
 8. **Honcho** (大) — 必要性が見えてから
 
 各項目に着手するときに、改めて設計プランを立ててから実装する (本プロジェクトの着手プロセス参照)。
