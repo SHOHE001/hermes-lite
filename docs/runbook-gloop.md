@@ -23,6 +23,16 @@
 
 watcher / worker は無人運用が前提なので、症状を残さず再起動すると同じ落とし穴を何度も踏む。落ちた瞬間が一番情報が残っているので、その場で死因を取りきる。これは [[推測禁止ルール]] の延長で、「動かない原因の推測で再起動を選ばない」と同義。
 
+## watcher 死亡検知 (gloop-heartbeat)
+
+2026-07-19 追加。`/status` を人が叩かないと watcher 死亡に気づかない問題があり、14 日放置した実績あり。以降は `jobs/gloop-heartbeat/check.sh` を hourly で回して自動検知する。
+
+- 判定: `features/.loop/tmux-state.json` の `watcher_pid` が生きていない かつ `worker_pane_id` が tmux 上に存在する → 「gloop が中途半端に死亡」と判定
+- 通知: `lib/notify.sh` の `notify_discord` で Discord webhook に投稿
+- デデュープ: 同一状態での通知は 24h に 1 回のみ (`features/.loop/heartbeat-state.json` に `last_alert_at` を保持)
+- ユニット: `~/.config/systemd/user/gloop-heartbeat.{service,timer}` (`WantedBy=timers.target`)
+- 通知が来たら本 runbook の「必ずやる手順」に従って死因調査から入る (通知は再起動指示ではない)
+
 ## 既知の落とし穴（順次追記）
 
 - **そもそも tmux 内で起動していない**: `/gloop` / `node loop-tmux-start.mjs` を呼んで `ERROR: $TMUX is not set. Run inside a tmux session.` で弾かれるパターン。呼び元 shell が tmux session の外（素の SSH bash、systemd ユニット、Claude Code のバックグラウンドジョブ shell など）にいると `$TMUX` が継承されず、安全側で起動拒否される。**対処**: 既存の tmux session に attach (`tmux attach -t <session>`) してから claude を起動 → `/gloop` を打つ。新規なら `tmux new -s <name>` で session を作ってその中で立ち上げる。`TMUX` を偽装するのは split-window が同じソケットに張れないと壊れるので非推奨。

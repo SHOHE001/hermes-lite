@@ -1,0 +1,9 @@
+[Unit]
+Description=gloop watcher heartbeat: alert if watcher died while worker pane still exists
+
+[Service]
+Type=oneshot
+ExecStart=%h/hermes-lite/jobs/gloop-heartbeat/check.sh
+ProtectSystem=full
+PrivateTmp=true
+NoNewPrivileges=true

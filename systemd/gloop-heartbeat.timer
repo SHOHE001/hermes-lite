@@ -1,0 +1,10 @@
+[Unit]
+Description=gloop-heartbeat: hourly watcher liveness check
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+Unit=gloop-heartbeat.service
+
+[Install]
+WantedBy=timers.target
