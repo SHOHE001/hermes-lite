@@ -6,12 +6,14 @@
 
 ## アーキテクチャ (1ページ要約)
 
+> **スコープ変更 (2026-07-20)**: 当初はグローバル `~/.claude/settings.json` の Stop hook で**全セッション**を収穫対象にしていたが、hermes-lite の対話作業セッションのみに縮小した（ユーザー指示。--bare 廃止後、レビュー用子 claude の Stop が notify-pc.sh を二重発火させ通知が連打された件が発端）。hook は**開発クローン** `~/プロジェクト/hermes-lite/.claude/settings.json`（git 管理外、ローカル配置）に登録。稼働クローン `~/hermes-lite/` には置かない — 置くと Discord bot / gloop / jobs の claude -p にも hook が効いてしまうため。
+
 ```
-[Claude Code ターン終了]
+[Claude Code ターン終了 (開発クローンでの対話セッションのみ)]
         │ Stop hook
         ▼
-~/.claude/settings.json
-   "Stop": [..., on-stop.sh]
+~/プロジェクト/hermes-lite/.claude/settings.json (ローカル配置)
+   "Stop": [on-stop.sh]
         │
         ▼
 ~/hermes-lite/skills-loop/bin/on-stop.sh
@@ -44,7 +46,7 @@ state/runs/on-stop-<ts>.json (実行ログ)
 | やりたいこと | コマンド |
 |---|---|
 | **緊急停止** (Stop hook 走らせない) | `export HERMES_SKILL_REVIEW_DISABLE=1` してから claude 起動 |
-| 全プロセスで停止 | `~/.claude/settings.json` の Stop 配列から on-stop.sh エントリを削除 |
+| 全プロセスで停止 | `~/プロジェクト/hermes-lite/.claude/settings.json` の Stop 配列から on-stop.sh エントリを削除 |
 | 永続停止 | `crontab -e` で hermes-lite の2行を削除 + 上記 settings.json 編集 |
 | 再開 | 上記の逆 (環境変数を unset / 設定を戻す) |
 
