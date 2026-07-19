@@ -24,11 +24,12 @@ on-stop.py
    - transcript_path から jsonl 読み込み
    - 直前ターン (最後の人間 user 発話 → 末尾まで) を抽出
    - prompts/skill-review.md (本家 _SKILL_REVIEW_PROMPT 移植) と合成
-   - claude -p --bare --output-format json で実行
+   - claude -p --output-format json で実行
         │
         ▼
-claude -p --bare (HERMES_SKILL_REVIEW_RUNNING=1)
-   - hooks / auto-memory / CLAUDE.md / skills 全 disable (再帰防止)
+claude -p (HERMES_SKILL_REVIEW_RUNNING=1)
+   - Stop hook の再発火は HERMES_SKILL_REVIEW_RUNNING=1 環境変数の再帰ガードで防ぐ
+   - (以前は --bare を使っていたが --bare は OAuth/keychain を読まないため Max 認証が通らず 30 日間 subprocess が全滅していた)
    - Edit / Write tool で ~/.claude/skills/hermes-lite/<name>/SKILL.md を直接編集
         │
         ▼
@@ -89,7 +90,7 @@ python3 ~/hermes-lite/skills-loop/bin/usage-tracker.py
 
 今は OFF (本家 default 同様)。ON にしたいときの手順:
 1. 本家 `agent/curator.py` `_CURATOR_REVIEW_PROMPT` を取得して `prompts/curator-review.md` に保存
-2. `bin/curator.py` に `--consolidate` フラグ追加、claude -p --bare で curator-review.md を呼ぶ branch を実装
+2. `bin/curator.py` に `--consolidate` フラグ追加、claude -p で curator-review.md を呼ぶ branch を実装 (--bare は使わない。Max OAuth が通らないため)
 3. 週次 cron に `--consolidate` を追加
 
 このプロジェクトの目的 (= Max枠で軽く回す) を考えると、しばらくは OFF のままで十分。

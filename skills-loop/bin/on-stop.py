@@ -12,7 +12,8 @@ Claude Code が Stop hook の stdin に渡す JSON (例):
 
 再帰防止:
   - 環境変数 HERMES_SKILL_REVIEW_RUNNING=1 が立っていれば即終了
-  - claude -p は --bare で呼び、hooks/auto-memory/CLAUDE.md/skills を全 disable
+  - claude -p の subprocess にも HERMES_SKILL_REVIEW_RUNNING=1 を渡して二重発火を防ぐ
+    (--bare は使わない。--bare は OAuth/keychain を読まない仕様のため Max 認証が通らない)
 緊急停止:
   - HERMES_SKILL_REVIEW_DISABLE=1 で全停止
 """
@@ -108,7 +109,6 @@ def _run_claude(prompt: str) -> tuple[int, str, str]:
     cmd = [
         CLAUDE_BIN,
         "-p",
-        "--bare",
         "--output-format", "json",
         "--add-dir", str(skill_io.HERMES_LITE_ROOT),
         prompt,
