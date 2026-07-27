@@ -161,17 +161,28 @@ fi
 echo "$TS,$EXIT_CODE,${IS_ERROR:-},${COST_USD:-},${INPUT_TOKENS:-},${OUTPUT_TOKENS:-}" >> "$COST_CSV"
 
 # --- 通知 ---
-# RESULT_TEXT が RESULT_ERROR_PREFIX で始まる場合は claude プロセス自体は正常終了でも
-# 失敗扱いにする (例: prompt 側の fail-fast でラベル不在等)。
+# RESULT_TEXT の *いずれかの行* が RESULT_ERROR_PREFIX で始まる場合は、
+# claude プロセス自体が正常終了でも失敗扱いにする
+# (例: prompt 側の fail-fast でラベル不在等)。
+#
+# かつては RESULT_TEXT の先頭だけを見ていた。しかし実際の応答は説明文から
+# 始まり "ERROR: ..." は末尾の行に来る。mail-watch はこれで 2026-07-03 以降
+# 60 回連続の失敗を「成功」として通知し続け、23 日間気づかれなかった。
+# 先頭一致ではなく行単位で判定すること。
+#
 # RESULT_ERROR_PREFIX が空のときはこの判定を無効化する。
 # substring 比較で literal 一致を保証（pattern matching に依存しない）。
-_starts_with_error_prefix=0
-if [[ -n "$RESULT_ERROR_PREFIX" \
-    && "${RESULT_TEXT:0:${#RESULT_ERROR_PREFIX}}" == "$RESULT_ERROR_PREFIX" ]]; then
-  _starts_with_error_prefix=1
+_has_error_line=0
+if [[ -n "$RESULT_ERROR_PREFIX" ]]; then
+  while IFS= read -r _result_line; do
+    if [[ "${_result_line:0:${#RESULT_ERROR_PREFIX}}" == "$RESULT_ERROR_PREFIX" ]]; then
+      _has_error_line=1
+      break
+    fi
+  done <<< "$RESULT_TEXT"
 fi
 
-if [[ "$EXIT_CODE" -eq 0 && "$IS_ERROR" != "true" && "$_starts_with_error_prefix" -eq 0 ]]; then
+if [[ "$EXIT_CODE" -eq 0 && "$IS_ERROR" != "true" && "$_has_error_line" -eq 0 ]]; then
   echo "[run-claude] OK exit=0 cost=${COST_USD:-?} in=${INPUT_TOKENS:-?} out=${OUTPUT_TOKENS:-?}" >&2
   if [[ "$NOTIFY_RESULT" == "1" ]]; then
     if [[ -n "${SUPPRESS_RESULT_IF:-}" && "$RESULT_TEXT" == "$SUPPRESS_RESULT_IF" ]]; then
@@ -185,11 +196,11 @@ if [[ "$EXIT_CODE" -eq 0 && "$IS_ERROR" != "true" && "$_starts_with_error_prefix
     fi
   fi
 else
-  if [[ "$_starts_with_error_prefix" -eq 1 && "$EXIT_CODE" -eq 0 && "$IS_ERROR" != "true" ]]; then
+  if [[ "$_has_error_line" -eq 1 && "$EXIT_CODE" -eq 0 && "$IS_ERROR" != "true" ]]; then
     if [[ "$RESULT_ERROR_PREFIX" == "ERROR:" ]]; then
-      echo "[run-claude] FAIL via ERROR: prefix in result" >&2
+      echo "[run-claude] FAIL via ERROR: line in result" >&2
     else
-      printf '[run-claude] FAIL via ERROR: prefix in result (%q)\n' "$RESULT_ERROR_PREFIX" >&2
+      printf '[run-claude] FAIL via error line in result (%q)\n' "$RESULT_ERROR_PREFIX" >&2
     fi
   else
     echo "[run-claude] FAIL exit=$EXIT_CODE is_error=${IS_ERROR:-?}" >&2
@@ -197,7 +208,7 @@ else
   if [[ "$NOTIFY_ON_ERROR" == "1" ]]; then
     ERR_SNIPPET=""
     # 旧来 ERROR: prefix 互換: prefix を無効化していても RESULT_TEXT を採用する（データフロー分離）
-    if [[ "$_starts_with_error_prefix" -eq 1 || "$RESULT_TEXT" == ERROR:* ]]; then
+    if [[ "$_has_error_line" -eq 1 || "$RESULT_TEXT" == ERROR:* ]]; then
       ERR_SNIPPET="$RESULT_TEXT"
     elif [[ -s "$ERR_LOG" ]]; then
       ERR_SNIPPET=$(tail -c 500 "$ERR_LOG")
