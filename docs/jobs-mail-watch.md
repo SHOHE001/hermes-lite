@@ -8,7 +8,7 @@
 systemd timer (6h)
   → bin/run-claude.sh mail-watch
       → claude -p prompt.md
-          → list_labels で hermes-lite/done の ID を取得（無ければ fail-fast）
+          → list_labels で helmeslite-done の ID を取得（無ければ fail-fast）
           → search_threads "newer_than:12h in:inbox -in:trash -in:spam -category:promotions -category:social -label:<DONE_ID>"
               pageSize=50 / view=THREAD_VIEW_MINIMAL（差出人・件名・snippet）
           → 0 件なら最終応答 "[NOOP]" で終了
@@ -16,7 +16,7 @@ systemd timer (6h)
           → 該当 0 件なら "[NOOP]" で終了
           → 【二次】通知対象（最大 5 件）だけ get_thread で本文を取り 1 行要約
           → 通知本文を内部で組み立てる（最終応答にはまだ返さない）
-          → 通知対象にのみ label_thread(hermes-lite/done) を付与
+          → 通知対象にのみ label_thread(helmeslite-done) を付与
           → 組み立てた通知本文を最終応答テキストとして返す
       → ラッパーが NOTIFY_RESULT=1 で result を Discord へ投稿
       → SUPPRESS_RESULT_IF="[NOOP]" により 0 件時の Discord 投稿はスキップ
@@ -29,11 +29,13 @@ systemd timer (6h)
 
 ### 1. Gmail 側のラベル準備（手動）
 
-Gmail Web UI で **`hermes-lite/done` の 1 ラベルだけ** を作成しておく（`hermes-lite > done` のネスト表示になる）。これが「通知済み」の記録で、検索クエリでの除外に使う。
+Gmail Web UI で **`helmeslite-done` の 1 ラベルだけ** を作成しておく。これが「通知済み」の記録で、検索クエリでの除外に使う。
+
+ラベル名の綴りがプロジェクト名（hermes-lite）と違うのは、2026-07-28 に Gmail 側で先に `helmeslite-done` として作られたものをそのまま使っているため。MCP からはリネームもできない（下記のスコープ制限）ので、コード側を実物に合わせてある。**Gmail 上の表示名と `prompt.md` の記述が一致していることだけが要件**で、変えたい場合は Web UI でリネームしたうえで `prompt.md` の 3 箇所（手順 1 の 2 行と手順 6）を同じ名前に直す。
 
 **このラベル作成は Web UI でしか行えない**。対話セッションから MCP の `create_label` を呼ぶと `Request had insufficient authentication scopes.` で失敗する（2026-07-28 実測）。Gmail コネクタに付与されているスコープにラベル作成が含まれていないため。
 
-ジョブは起動時に `list_labels` でこれを探し、**見つからなければ fail-fast** で `ERROR: label not found: hermes-lite/done` を返して即終了する（通知済みを記録できないまま走ると重複通知が止まらなくなるため）。
+ジョブは起動時に `list_labels` でこれを探し、**見つからなければ fail-fast** で `ERROR: label not found: helmeslite-done` を返して即終了する（通知済みを記録できないまま走ると重複通知が止まらなくなるため）。
 
 **Gmail 側のフィルタ設定は不要**。重要かどうかの判定はジョブ側で行う。
 
@@ -55,14 +57,13 @@ DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
 
 ### 4. ラベルの付与単位
 
-ラベルは **thread レベル**（`label_thread`）で付ける。thread 内の既存 message 全部に `hermes-lite/done` が付くため、その thread は次サイクル以降ヒットしなくなる。ただし**新しい返信が届くとその message には done が付いていない**ので再びヒットする。継続中のやり取りに新展開があれば再通知される、という意図した挙動。
+ラベルは **thread レベル**（`label_thread`）で付ける。thread 内の既存 message 全部に `helmeslite-done` が付くため、その thread は次サイクル以降ヒットしなくなる。ただし**新しい返信が届くとその message には done が付いていない**ので再びヒットする。継続中のやり取りに新展開があれば再通知される、という意図した挙動。
 
 ## 旧方式（ラベル手動貼り）からの移行
 
-- Gmail 側で `hermes-lite` ラベルにフィルタを設定していた場合、**そのフィルタは削除してよい**。ジョブはもう `hermes-lite` ラベルを見ない。
-- `hermes-lite` ラベル自体も削除してよい（残っていてもジョブの動作には影響しない）。
-- `hermes-lite/done` は**削除してはいけない**。新方式でも通知済みマーカーとして使う。
-- 旧方式で `hermes-lite/done` が付いた過去メールは、新方式でも自動的に除外対象になる。
+- 未処理メール用のラベル（`helmeslite` / 旧設計では `hermes-lite`）は**新方式では一切参照しない**。Gmail 側でこれにフィルタを設定していた場合、そのフィルタごと削除してよい。ラベル自体も削除してよい（残っていても動作には影響しない）。
+- `helmeslite-done` は**削除してはいけない**。通知済みマーカーとして使う。
+- なお 2026-07-28 の実測では、旧方式で必要だったラベルは**そもそも 1 つも作成されていなかった**（ユーザーラベルは `[Notion]` のみ）。旧方式は実運用されておらず、移行対象のメールは存在しない。
 
 ## systemd timer 登録
 
@@ -116,7 +117,7 @@ systemctl --user status claude-agent@mail-watch.timer
 | 1 サイクル通知上限 | **5 件**（重要度の高い順、同程度なら古い順） |
 | 通知フォーマット | `[mail-watch] 重要 N 件 / 直近12h（候補 M 件・除外 K 件）\n- 差出人 \| 件名 \| 1 行要約` × N |
 | 0 件時 | claude が `[NOOP]` を返し、ラッパーが `SUPPRESS_RESULT_IF` で投稿スキップ |
-| ラベル付与 | **通知したものにのみ** `hermes-lite/done`。通知本文を返す前に完了させる |
+| ラベル付与 | **通知したものにのみ** `helmeslite-done`。通知本文を返す前に完了させる |
 | Calendar / Notion 書き込み | 禁止（`lib/disallowed-tools.txt` により自動拒否） |
 | 失敗時 | `NOTIFY_ON_ERROR=1` で Discord に FAIL 通知 |
 | スケジュール | `*-*-* 00,06,12,18:00:00`（6h ごと） |
@@ -143,7 +144,7 @@ systemctl --user status claude-agent@mail-watch.timer
 そこで状態記録を「時間窓」と「通知済みラベル」に分けた:
 
 - **時間窓（`newer_than:12h`）** が評価対象の範囲を決める。通知しなかったメールは窓から出れば自然に対象外になり、ラベルは不要
-- **`hermes-lite/done`** は通知したものにだけ付き、重複通知を防ぐ
+- **`helmeslite-done`** は通知したものにだけ付き、重複通知を防ぐ
 
 これで状態ファイルも最終実行時刻の記録も要らない。ジョブが数回落ちても、次に走ったときの直近 12h から再開するだけで復帰する。
 
@@ -151,7 +152,7 @@ systemctl --user status claude-agent@mail-watch.timer
 
 「**ラベル付与 → 通知本文を最終応答として返す**」の順で実行する。理由: claude の最終応答を返した時点でツール実行は終了するため、最終応答を返す前にラベル付与を完了させる必要がある。
 
-- **ラベル付与後・通知前にプロセスが死ぬ** → 通知漏れ。発見方法: Gmail 上で `hermes-lite/done` が付いているのに Discord に来ていない thread を探す。再通知したい場合は当該 thread から `hermes-lite/done` を外すと、12h 窓の内側であれば次サイクルで拾われる
+- **ラベル付与後・通知前にプロセスが死ぬ** → 通知漏れ。発見方法: Gmail 上で `helmeslite-done` が付いているのに Discord に来ていない thread を探す。再通知したい場合は当該 thread から `helmeslite-done` を外すと、12h 窓の内側であれば次サイクルで拾われる
 - 重複通知（spam）より通知漏れの方が運用負荷が低いと判断
 
 ### 判定の非決定性について
@@ -167,7 +168,7 @@ systemctl --user status claude-agent@mail-watch.timer
 | 症状 | 確認 |
 |---|---|
 | Discord に何も来ない | (a) `logs/mail-watch/<ts>.json` の `.result` を確認 → `[NOOP]` なら「重要なメール 0 件」で正常。<br>(b) `.stderr` に `Discord post failed` が無いか確認。<br>(c) `.env` の `DISCORD_WEBHOOK_URL` が有効か確認 |
-| `ERROR: label not found: hermes-lite/done` | Gmail 側で `hermes-lite/done` ラベルを作成する |
+| `ERROR: label not found: helmeslite-done` | Gmail 側で `helmeslite-done` ラベルを作成する |
 | 重要なメールが通知されなかった | `.result` の `除外 K 件` を確認。`prompt.md` の「重要度の基準」の**通知する側**に条件を追記する |
 | どうでもいいメールが通知される | `prompt.md` の「重要度の基準」の**通知しない側**に条件を追記する |
 | 同じメールが何度も通知される | (a) `label_thread` が失敗していないか `logs/.../<ts>.json` を確認。<br>(b) 新しい返信が届いた thread は仕様上再ヒットする（新展開があれば再通知する設計） |
@@ -178,8 +179,8 @@ systemctl --user status claude-agent@mail-watch.timer
 
 ## 設計の変遷
 
-- **Phase 1（Issue #2, 2026-07）**: ユーザーが Gmail フィルタで `hermes-lite` ラベルを貼り、その未読 thread（`label:hermes-lite is:unread`）を通知。通知後に `hermes-lite` → `hermes-lite/done` へ付け替えて重複を防いだ。
-- **2026-07-28 の書き換え**: 「何を通知するか」の条件を Gmail フィルタで人間が書き下ろす必要があり、条件から漏れたメールは永久に拾われなかった。判定を claude 側に移し、直近 12h の受信を全部評価する方式に変更。`hermes-lite` ラベルと `unlabel_thread` は不要になった。
+- **Phase 1（Issue #2, 2026-07）**: ユーザーが Gmail フィルタで `hermes-lite` ラベルを貼り、その未読 thread（`label:hermes-lite is:unread`）を通知。通知後に `hermes-lite` → `hermes-lite/done` へ付け替えて重複を防ぐ設計だった（この 2 ラベルは結局作成されず、実運用されないまま終わった）。
+- **2026-07-28 の書き換え**: 「何を通知するか」の条件を Gmail フィルタで人間が書き下ろす必要があり、条件から漏れたメールは永久に拾われなかった。判定を claude 側に移し、直近 12h の受信を全部評価する方式に変更。未処理ラベルと `unlabel_thread` は不要になった。通知済みラベルの実名は Gmail 側で作られた `helmeslite-done` を採用。
 
 ## 関連ファイル
 
