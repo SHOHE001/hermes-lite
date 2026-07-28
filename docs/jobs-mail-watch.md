@@ -9,7 +9,7 @@ systemd timer (6h)
   → bin/run-claude.sh mail-watch
       → claude -p prompt.md
           → list_labels で hermes-lite/done の ID を取得（無ければ fail-fast）
-          → search_threads "newer_than:12h in:inbox -category:promotions -category:social -label:<DONE_ID>"
+          → search_threads "newer_than:12h in:inbox -in:trash -in:spam -category:promotions -category:social -label:<DONE_ID>"
               pageSize=50 / view=THREAD_VIEW_MINIMAL（差出人・件名・snippet）
           → 0 件なら最終応答 "[NOOP]" で終了
           → 【一次スクリーニング】件名 + snippet だけで重要度判定（本文は取らない）
@@ -30,6 +30,8 @@ systemd timer (6h)
 ### 1. Gmail 側のラベル準備（手動）
 
 Gmail Web UI で **`hermes-lite/done` の 1 ラベルだけ** を作成しておく（`hermes-lite > done` のネスト表示になる）。これが「通知済み」の記録で、検索クエリでの除外に使う。
+
+**このラベル作成は Web UI でしか行えない**。対話セッションから MCP の `create_label` を呼ぶと `Request had insufficient authentication scopes.` で失敗する（2026-07-28 実測）。Gmail コネクタに付与されているスコープにラベル作成が含まれていないため。
 
 ジョブは起動時に `list_labels` でこれを探し、**見つからなければ fail-fast** で `ERROR: label not found: hermes-lite/done` を返して即終了する（通知済みを記録できないまま走ると重複通知が止まらなくなるため）。
 
@@ -106,7 +108,7 @@ systemctl --user status claude-agent@mail-watch.timer
 
 | 項目 | 値 |
 |---|---|
-| 検索クエリ | `newer_than:12h in:inbox -category:promotions -category:social -label:<DONE_ID>` |
+| 検索クエリ | `newer_than:12h in:inbox -in:trash -in:spam -category:promotions -category:social -label:<DONE_ID>` |
 | 検索取得上限 | `pageSize=50`、**ページングしない**（50 件到達時は通知本文に注記） |
 | 粒度 | thread |
 | 一次スクリーニング | 件名 + snippet のみ（`THREAD_VIEW_MINIMAL`）。`get_thread` は呼ばない |
@@ -125,6 +127,12 @@ systemctl --user status claude-agent@mail-watch.timer
 - `--disallowed-tools`: 共通禁止リストで Calendar / Notion / メール送信などを追加拒否
 
 二段構えにより、prompt 側で誤ってツール名を書いても危険操作は通らない。
+
+### 実測（2026-07-28）
+
+このアカウントで `newer_than:12h in:inbox -category:promotions -category:social` を実行したところ **候補 8 thread**。内訳はスカウト系（paiza / マイナビ）、GitHub 通知、Google ニュース、Quora、メルカリなどで、大半が「通知しない」側に落ちる。`pageSize=50` は当面十分。
+
+同時に、`in:inbox` を指定しても **全 message が `TRASH` の thread が返る** ことを確認した。クエリに `-in:trash -in:spam` を足したうえで、手順 3 でも `labelIds` を見て捨てる二重の防御にしている。
 
 ## 設計判断
 
@@ -164,6 +172,8 @@ systemctl --user status claude-agent@mail-watch.timer
 | どうでもいいメールが通知される | `prompt.md` の「重要度の基準」の**通知しない側**に条件を追記する |
 | 同じメールが何度も通知される | (a) `label_thread` が失敗していないか `logs/.../<ts>.json` を確認。<br>(b) 新しい返信が届いた thread は仕様上再ヒットする（新展開があれば再通知する設計） |
 | 候補が多すぎて未評価が出る（`※候補が上限に達した`） | `pageSize=50` を超える受信量。`prompt.md` のクエリに `-from:` などの除外条件を足して候補を減らす |
+| `ERROR: label update failed: ... insufficient authentication scopes` | Gmail コネクタのスコープにラベル変更が含まれていない。claude.ai 側で Gmail 連携を再認可して権限を付け直す（`create_label` は 2026-07-28 時点でこの理由により使えない） |
+| ゴミ箱のメールが通知される | クエリの `-in:trash` をすり抜けた場合の保険として `prompt.md` 手順 3 で `labelIds` に `TRASH`/`SPAM` を含む thread を捨てている。ここが効いているか `logs/.../<ts>.json` で確認する |
 | `is_error: true` で exit code != 0 | `--allowed-tools` に必要な MCP ツールが入っているか、MCP サーバが起動しているか、claude が disallowed ツールを呼ぼうとしていないかを `stderr` で確認 |
 
 ## 設計の変遷

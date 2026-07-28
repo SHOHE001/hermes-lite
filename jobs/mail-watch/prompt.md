@@ -27,14 +27,15 @@ Calendar 書き込み・Notion 編集・Gmail 下書き作成・メール送信�
 
 2. **候補の検索**
    - `mcp__claude_ai_Gmail__search_threads` を次の引数で呼ぶ:
-     - `query`: `newer_than:12h in:inbox -category:promotions -category:social -label:<DONE_ID>`
+     - `query`: `newer_than:12h in:inbox -in:trash -in:spam -category:promotions -category:social -label:<DONE_ID>`
      - `pageSize`: `50`
      - `view`: `THREAD_VIEW_MINIMAL`（差出人・件名・snippet が返る）
    - **ページングはしない**（2 ページ目以降は取りに行かない）。50 件返ってきた場合は打ち切られた可能性があるものとして扱い、手順 5 の注記に反映する。
    - 検索結果が 0 件なら、最終応答に `[NOOP]` とだけ返して終了（他の操作は一切しない）。
 
 3. **一次スクリーニング（本文は取らない）**
-   - 手順 2 で得た差出人・件名・snippet **だけ** を使って、各 thread が下の「重要度の基準」に該当するかを判定する。
+   - まず、**全 message の `labelIds` に `TRASH` または `SPAM` が入っている thread を捨てる**。クエリの `-in:trash -in:spam` をすり抜けてゴミ箱の thread が返ることが実測で確認されている（2026-07-28）。
+   - 残った thread について、手順 2 で得た差出人・件名・snippet **だけ** を使って、下の「重要度の基準」に該当するかを判定する。
    - この段階で `get_thread` を呼んではいけない。候補全件の本文取得はコストが見合わない。
    - 該当した thread を **重要度の高い順**に並べ、同程度なら古い順にして、**先頭から最大 5 件**を通知対象とする。
    - 該当が 0 件なら、最終応答に `[NOOP]` とだけ返して終了（ラベル付与もしない）。
