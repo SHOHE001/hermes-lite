@@ -40,6 +40,23 @@ ALLOWED_USER_IDS=123456789012345678
 HERMES_DISCORD_TIMEOUT_SEC=300
 ```
 
+**実運用では top-level の `~/hermes-lite/.env` 1 本にまとまっている**（`systemd/discord-gateway.service` の `EnvironmentFile=%h/hermes-lite/.env`）。上のローカル実行手順との差なので、常駐させるときは top-level 側に書く。
+
+### mail-watch 専用チャンネルを使う場合
+
+mail-watch の通知を専用チャンネルに分け、そこでの発言で判定ルールを直せるようにする場合は、`~/hermes-lite/.env` に次を足す（詳細は `docs/jobs-mail-watch.md`）:
+
+```
+MAIL_WATCH_DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
+MAIL_WATCH_CHANNEL_IDS=1234567890
+```
+
+- チャンネルを作り、**チャンネル設定 > 連携サービス > ウェブフック**で webhook を作って URL を取る
+- そのチャンネルの ID（開発者モードでチャンネル右クリック → ID をコピー）を `MAIL_WATCH_CHANNEL_IDS` に入れる
+- bot ロールにそのチャンネルの **View Channel / Read Message History / Send Messages** を付ける（返信元の取得に Read Message History が要る）
+- `INPUT_CHANNEL_IDS` には**足さない**。足すと汎用の対話ルートに流れてしまい、ルール調整ハンドラに届かない
+- 空にしておけばフィードバック機能ごと無効。通知だけ専用チャンネルに出したいならこちらだけ設定すればよい
+
 ## 4. ローカル実行で動作確認
 
 ```bash

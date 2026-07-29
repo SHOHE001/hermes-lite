@@ -77,7 +77,23 @@ _SECRET_ENV_KEYS = frozenset({
     # SwitchBot 認証は claude に渡さない。switchbot.py が自力で .env から読む
     # （lib/switchbot.py の _load_dotenv_creds）ため、env で渡す必要がない。
     "SWITCHBOT_TOKEN", "SWITCHBOT_SECRET",
+    # mail-watch 専用チャンネル（webhook URL は任意投稿できる capability token なので
+    # DISCORD_WEBHOOK_URL と同じ扱い）
+    "MAIL_WATCH_DISCORD_WEBHOOK_URL", "MAIL_WATCH_CHANNEL_IDS",
 })
+
+
+def build_child_env() -> dict[str, str]:
+    """claude 子プロセスへ渡す env（_SECRET_ENV_KEYS を除外 + CI=1）。
+
+    PATH / XDG_RUNTIME_DIR / DBUS_SESSION_BUS_ADDRESS 等は残す（bot 経由ジョブ作成の
+    systemctl --user に必要）。秘密キーだけ denylist で除外する。
+    mail_rules_handler.py からも呼ぶため関数として切り出してある（denylist の
+    3 個目のコピーを作らないこと）。
+    """
+    child_env = {k: v for k, v in os.environ.items() if k not in _SECRET_ENV_KEYS}
+    child_env["CI"] = "1"
+    return child_env
 
 # claude-watch/server.py の DISALLOWED_TOOLS を踏襲。
 # Slack 送信系は しょうへい個人ワークスペース前提でデフォルト許可、
@@ -176,10 +192,7 @@ def run_sync(prompt: str, resume_session_id: str | None = None) -> RunResult:
         len(cmd) - 3,
         f" resume={resume_session_id}" if resume_session_id else "",
     )
-    # PATH / XDG_RUNTIME_DIR / DBUS_SESSION_BUS_ADDRESS 等は残す（bot 経由ジョブ作成の
-    # systemctl --user に必要）。秘密キーだけ denylist で除外する。
-    child_env = {k: v for k, v in os.environ.items() if k not in _SECRET_ENV_KEYS}
-    child_env["CI"] = "1"
+    child_env = build_child_env()
     started = time.monotonic()
     try:
         proc = subprocess.run(

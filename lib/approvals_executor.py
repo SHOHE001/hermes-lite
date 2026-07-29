@@ -45,6 +45,9 @@ _SECRET_ENV_KEYS = frozenset({
     "INPUT_CHANNEL_IDS", "HERMES_APPROVAL_AUTHORIZED_USER_IDS",
     # bot.py が起動時に ALLOWED_USER_IDS のコピーを別名で os.environ に載せるため同様に除外
     "HERMES_APPROVAL_ALLOWED_USER_IDS_FALLBACK",
+    # mail-watch 専用チャンネル（webhook URL は任意投稿できる capability token なので
+    # DISCORD_WEBHOOK_URL と同じ扱い）
+    "MAIL_WATCH_DISCORD_WEBHOOK_URL", "MAIL_WATCH_CHANNEL_IDS",
 })
 
 

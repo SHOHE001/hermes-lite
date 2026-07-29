@@ -136,7 +136,7 @@ harness はこの間接切替に依拠する。`CLAUDE_BIN=stub` の env overrid
 
 ### 秘密キーの子プロセス継承カット（運用注記）
 
-`bin/run-claude.sh` は `.env` を `set -a` 無しで source するため、`.env` の値は claude 子プロセスの環境変数として渡らない（`HERMES_HOME` のみ意図的に export 済み）。Discord bot 経由（`gateway/discord/claude_runner.py`）と承認 executor（`lib/approvals_executor.py`）は自プロセス env に秘密を持つため、子プロセスへは denylist `_SECRET_ENV_KEYS`（`DISCORD_TOKEN` / `DISCORD_WEBHOOK_URL` / `ALLOWED_USER_IDS` / `INPUT_CHANNEL_IDS` / `HERMES_APPROVAL_AUTHORIZED_USER_IDS` / `HERMES_APPROVAL_ALLOWED_USER_IDS_FALLBACK`）を除外して渡す。**`.env` に新しい秘密キーを追加したら、この 2 ファイルの `_SECRET_ENV_KEYS` にも同じキーを追加すること**（両者は import 独立性のため定数を重複定義している）。
+`bin/run-claude.sh` は `.env` を `set -a` 無しで source するため、`.env` の値は claude 子プロセスの環境変数として渡らない（`HERMES_HOME` のみ意図的に export 済み）。Discord bot 経由（`gateway/discord/claude_runner.py`）と承認 executor（`lib/approvals_executor.py`）は自プロセス env に秘密を持つため、子プロセスへは denylist `_SECRET_ENV_KEYS`（`DISCORD_TOKEN` / `DISCORD_WEBHOOK_URL` / `ALLOWED_USER_IDS` / `INPUT_CHANNEL_IDS` / `HERMES_APPROVAL_AUTHORIZED_USER_IDS` / `HERMES_APPROVAL_ALLOWED_USER_IDS_FALLBACK` / `MAIL_WATCH_DISCORD_WEBHOOK_URL` / `MAIL_WATCH_CHANNEL_IDS`）を除外して渡す。**`.env` に新しい秘密キーを追加したら、この 2 ファイルの `_SECRET_ENV_KEYS` にも同じキーを追加すること**（両者は import 独立性のため定数を重複定義している）。
 
 ---
 

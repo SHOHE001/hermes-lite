@@ -34,3 +34,17 @@ APPROVALS_DB = Path(os.environ.get(
 ))
 # feature flag: default "0" (opt-in)。"1" のときのみ approval 経路を有効化。
 APPROVAL_COMMANDS_ENABLED = os.environ.get("HERMES_APPROVAL_COMMANDS_ENABLED", "0") == "1"
+
+# --- mail-watch フィードバック（専用チャンネル） ---
+# このチャンネルの発言だけが Read/Edit 権限付きの mail-watch ルール調整に流れる。
+# 空なら機能ごと無効（別 feature flag は設けない。誤爆先が存在しないため）。
+# INPUT_CHANNEL_IDS には意図的に足さない（足すと汎用ルートのセッションが張られ、
+# route 分岐を誤ったときに Edit なしの汎用ハンドラへ黙って落ちる）。
+MAIL_WATCH_CHANNEL_IDS: list[int] = _parse_ids(os.environ.get("MAIL_WATCH_CHANNEL_IDS", ""))
+MAIL_WATCH_RULES_PATH = Path(os.environ.get(
+    "MAIL_WATCH_RULES_PATH",
+    str(HERMES_HOME / "var" / "mail-watch" / "rules.md"),
+))
+# ルール調整の claude -p 設定。汎用 runner (MODEL / TIMEOUT_SEC) とは別に持つ。
+MAIL_RULES_MODEL = os.environ.get("HERMES_MAIL_RULES_MODEL", "sonnet").strip()
+MAIL_RULES_TIMEOUT_SEC = int(os.environ.get("HERMES_MAIL_RULES_TIMEOUT_SEC", "120"))

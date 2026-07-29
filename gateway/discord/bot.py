@@ -16,6 +16,7 @@ from config import (
     ALLOWED_USER_IDS,
     DISCORD_TOKEN,
     INPUT_CHANNEL_IDS,
+    MAIL_WATCH_CHANNEL_IDS,
     MAX_DISCORD_MESSAGE,
     SESSIONS_DB,
     HERMES_HOME,
@@ -74,6 +75,25 @@ if APPROVAL_COMMANDS_ENABLED:
         _approval_handler = None
 
 
+# ---------------------------------------------------------------------------
+# mail-watch フィードバック — チャンネル ID が設定されているときだけ optional import
+# ---------------------------------------------------------------------------
+
+_mail_rules_handler = None  # type: Optional[object]
+
+if MAIL_WATCH_CHANNEL_IDS:
+    try:
+        import mail_rules_handler  # type: ignore
+        _mail_rules_handler = mail_rules_handler
+        log.info("mail-watch feedback enabled (channels=%s)", MAIL_WATCH_CHANNEL_IDS)
+    except Exception:
+        log.warning(
+            "mail_rules_handler import failed; mail-watch feedback disabled",
+            exc_info=True,
+        )
+        _mail_rules_handler = None
+
+
 def _scope_key(message: discord.Message) -> str | None:
     if isinstance(message.channel, discord.DMChannel):
         return f"dm:{message.author.id}"
@@ -96,7 +116,36 @@ def _should_react(message: discord.Message) -> bool:
         return True
     if message.channel.id in INPUT_CHANNEL_IDS:
         return True
+    if message.channel.id in MAIL_WATCH_CHANNEL_IDS:
+        return True
     return client.user is not None and client.user in message.mentions
+
+
+async def _resolve_reply_text(message: discord.Message) -> str | None:
+    """返信なら元メッセージ本文を返す。取れなければ None（機能は継続する）.
+
+    mail-watch の通知は webhook 投稿（author.bot == True）だが、_should_react の
+    bot 無視は新規イベントに対する判定であって、参照の解決には影響しない。
+    """
+    ref = message.reference
+    if ref is None:
+        return None
+    resolved = ref.resolved
+    if isinstance(resolved, discord.Message):
+        return resolved.content or None
+    if isinstance(resolved, discord.DeletedReferencedMessage):
+        return None
+    if ref.message_id is None:
+        return None
+    try:
+        fetched = await message.channel.fetch_message(ref.message_id)
+    except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+        # Read Message History 権限が無いと Forbidden になる。quoted なしで続行する。
+        log.warning(
+            "could not fetch referenced message %s", ref.message_id, exc_info=True
+        )
+        return None
+    return fetched.content or None
 
 
 def _strip_mention(content: str) -> str:
@@ -369,6 +418,38 @@ async def on_message(message: discord.Message) -> None:
             # /clear は DB 削除後に send だけ失敗し得る（状態は変更済み）。
             # 既存 compaction notice（bot.py:264-272）と同じく warning を残し journalctl で追える形にする。
             log.warning("could not send slash reply (route=slash)", exc_info=True)
+        return
+
+    # mail-watch 専用チャンネル: approval / slash を通り抜けた発言だけをここで捌く。
+    # 優先順位を approval > slash > mail-watch > handle にしてあるのは、既存の
+    # approval 契約を壊さず、/help や /clear が「ルール」として学習されないようにするため。
+    if route == "handle" and message.channel.id in MAIL_WATCH_CHANNEL_IDS:
+        if _mail_rules_handler is None:
+            await message.channel.send(
+                "⚠️ [WARN] mail-watch feedback disabled (import failed; journalctl 参照)"
+            )
+            return
+        quoted = await _resolve_reply_text(message)
+        async with locks[f"mailrules:{message.channel.id}"]:
+            log.info(
+                "mail-rules from=%s channel=%s quoted=%s text: %s",
+                message.author.id, message.channel.id, quoted is not None,
+                stripped[:200].replace("\n", " "),
+            )
+            try:
+                async with message.channel.typing():
+                    reply = await asyncio.to_thread(
+                        _mail_rules_handler.handle,
+                        user_text=stripped,
+                        user_id=message.author.id,
+                        channel_id=message.channel.id,
+                        quoted_text=quoted,
+                    )
+            except Exception:
+                log.exception("mail rules handler crashed")
+                reply = "⚠️ [WARN] mail-watch ルール処理で内部エラー (journalctl 参照)"
+        for chunk in _split_for_discord(reply):
+            await message.channel.send(chunk)
         return
 
     await _handle(message)   # route == "handle"
