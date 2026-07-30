@@ -21,7 +21,7 @@ Hermes 本家を Anthropic OAuth (Claude Pro/Max) で動かしても、Anthropic
 
 - 各機能は **既存資産で代替可能ならまず代替で済ます**。新規実装は代替不可なものに限る
 - 機能ごとに必ず「何を作るか」「どこに置くか」をユーザーと合意してから着手する (推測禁止ルール継承)
-- 外部送信 (Telegram bot post 等) は CLAUDE.common.md の送信系操作の事前確認ルールに従う
+- 外部送信 (Telegram bot post 等) は `~/.claude/CLAUDE.md` の送信系操作の事前確認ルールに従う
 
 ## 既存資産との関係 (Hermesの代替に使える)
 
