@@ -18,7 +18,7 @@
 #   MODEL                 ... 既定 DEFAULT_MODEL
 #   NOTIFY_RESULT         ... 1 にすると正常終了時に result を Discord 投稿
 #   NOTIFY_ON_ERROR       ... 1 にすると失敗時に概要を Discord 投稿（既定 1）
-#   SUPPRESS_RESULT_IF    ... 最終応答が完全一致したら Discord 投稿をスキップ（opt-in）
+#   SUPPRESS_RESULT_IF    ... 最終応答が完全一致 or この文字列で終わるなら Discord 投稿をスキップ（opt-in）
 #   SUPPRESS_EMPTY_RESULT ... 1 にすると空 result の "(no result text)" 投稿もスキップ（既定 0）
 #   RESULT_ERROR_PREFIX   ... RESULT_TEXT がこの prefix で始まる場合 FAIL 経路扱い（既定 "ERROR:"、空で無効化）
 #
@@ -70,6 +70,7 @@ MAX_BUDGET_USD="$DEFAULT_MAX_BUDGET_USD"
 MODEL="$DEFAULT_MODEL"
 # 最終応答が完全一致したら Discord 投稿をスキップしたいジョブ向け（opt-in）。
 # 例: mail-watch は 0 件時に "[NOOP]" を返すので、job.env で SUPPRESS_RESULT_IF="[NOOP]" を設定する。
+# 判定は trim 後の完全一致 or 末尾一致（前置きの説明文が付いても抑止する。投稿箇所のコメント参照）。
 SUPPRESS_RESULT_IF=""
 
 # 空 RESULT_TEXT のときの "(no result text)" 投稿を抑止するか。"1" のみ true（opt-in）。
@@ -185,7 +186,13 @@ fi
 if [[ "$EXIT_CODE" -eq 0 && "$IS_ERROR" != "true" && "$_has_error_line" -eq 0 ]]; then
   echo "[run-claude] OK exit=0 cost=${COST_USD:-?} in=${INPUT_TOKENS:-?} out=${OUTPUT_TOKENS:-?}" >&2
   if [[ "$NOTIFY_RESULT" == "1" ]]; then
-    if [[ -n "${SUPPRESS_RESULT_IF:-}" && "$RESULT_TEXT" == "$SUPPRESS_RESULT_IF" ]]; then
+    # 完全一致だけでなく「末尾一致」も抑止対象にする。claude が指示に反して
+    # 前置きの説明文を書いたうえで最後に [NOOP] を置くケースが実測で起きており
+    # (2026-07-31 18:00 / 2026-08-01 16:15 の mail-watch)、完全一致だけでは
+    # 「0 件です」という不要通知が Discord に飛ぶ。前後の空白は落として比較する。
+    _result_trimmed="${RESULT_TEXT#"${RESULT_TEXT%%[![:space:]]*}"}"
+    _result_trimmed="${_result_trimmed%"${_result_trimmed##*[![:space:]]}"}"
+    if [[ -n "${SUPPRESS_RESULT_IF:-}" && ( "$_result_trimmed" == "$SUPPRESS_RESULT_IF" || "$_result_trimmed" == *"$SUPPRESS_RESULT_IF" ) ]]; then
       echo "[run-claude] result matched SUPPRESS_RESULT_IF — skipping Discord post" >&2
     elif [[ -z "$RESULT_TEXT" && "$SUPPRESS_EMPTY_RESULT" == "1" ]]; then
       echo "[run-claude] empty result + SUPPRESS_EMPTY_RESULT=1 — skipping Discord post" >&2

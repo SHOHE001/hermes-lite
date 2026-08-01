@@ -1,43 +1,62 @@
 # jobs/mail-watch セットアップ
 
-直近 12 時間に届いたメールを claude 自身が読んで重要度を判定し、**重要なものだけ**を 6 時間ごとに Discord へ通知するジョブ。Issue #2 (Phase 1) で「ユーザーが `hermes-lite` ラベルを貼ったメールを通知する」方式として実装し、2026-07-28 に自動判定方式へ書き換えた（経緯は末尾「設計の変遷」）。
+直近 12 時間に届いたメールを claude 自身が読んで重要度を判定し、**通知は原則 1 日 1 回のまとめに集約する**ジョブ。いますぐ知る必要があるものだけ、検知したその場で割り込み通知する。Issue #2 (Phase 1) で「ユーザーが `hermes-lite` ラベルを貼ったメールを通知する」方式として実装し、2026-07-28 に自動判定方式へ、2026-08-01 に「まとめ 1 回 + 至急のみ即時」の 2 ジョブ構成へ書き換えた（経緯は末尾「設計の変遷」）。
 
 ## 概要
 
+検知の `mail-watch` と、まとめ投稿の `mail-digest` の 2 ジョブに分かれる。
+
 ```
-systemd timer (6h)
+systemd timer (2h)
   → bin/run-claude.sh mail-watch
       → claude -p prompt.md
-          → Read var/mail-watch/notified.json（通知済み thread ID。無ければ空扱い）
+          → Read var/mail-watch/notified.json（処理済み thread ID。無ければ空扱い）
+          → Read var/mail-watch/pending.json（まとめ待ちの保留キュー。無ければ空扱い）
           → Read var/mail-watch/rules.md（学習した追加ルール。無ければ無視して続行）
           → search_threads "newer_than:12h in:inbox -in:trash -in:spam -category:promotions -category:social"
               pageSize=50 / view=THREAD_VIEW_MINIMAL（差出人・件名・snippet）
           → 0 件なら最終応答 "[NOOP]" で終了
-          → 【一次スクリーニング】通知済み・TRASH/SPAM を機械的に捨て、
+          → 【一次スクリーニング】処理済み・TRASH/SPAM を機械的に捨て、
               残りを件名 + snippet だけで重要度判定（本文は取らない）
           → 該当 0 件なら "[NOOP]" で終了
-          → 【二次】通知対象（最大 5 件）だけ get_thread で本文を取り 1 行要約
-          → 通知本文を内部で組み立てる（最終応答にはまだ返さない）
-          → Write で notified.json を更新（通知したものだけ追記、3 日より古いものは削除）
-          → 組み立てた通知本文を最終応答テキストとして返す
+          → 【二次】取り上げ対象（最大 5 件）だけ get_thread で本文を取り 1 行要約
+          → 【振り分け】各件を「至急（即時通知）」と「保留（翌朝まとめ）」に分ける。迷ったら保留
+          → Write で pending.json に保留分を追記（7 日より古いものは削除）
+          → Write で notified.json を更新（即時・保留の両方を追記、3 日より古いものは削除）
+          → 至急が 1 件以上なら通知本文を、0 件なら "[NOOP]" を最終応答として返す
       → ラッパーが NOTIFY_RESULT=1 で result を mail-watch 専用チャンネルへ投稿
           （job.env が DISCORD_WEBHOOK_URL を MAIL_WATCH_DISCORD_WEBHOOK_URL に差し替える）
-      → SUPPRESS_RESULT_IF="[NOOP]" により 0 件時の Discord 投稿はスキップ
+      → SUPPRESS_RESULT_IF="[NOOP]" により至急 0 件時の Discord 投稿はスキップ
       → 異常終了時は NOTIFY_ON_ERROR=1 経路で FAIL 通知が出る
+
+systemd timer (毎日 08:30)
+  → bin/run-claude.sh mail-digest
+      → claude -p prompt.md（ツールは Read / Write のみ。メールは読まない）
+          → Read var/mail-watch/pending.json
+          → 0 件なら "[NOOP]" で終了（「今日は 0 件」通知は出さない）
+          → 各エントリの line をそのまま古い順に並べて本文を組み立てる
+          → Write で pending.json を {"pending": []} に空化
+          → 通知本文を最終応答として返す
+      → mail-watch と同じ専用チャンネルへ 1 通投稿
 ```
 
-`get_thread` は通知する数件にしか呼ばないので、候補が何十件あっても本文取得のコストは通知件数に比例する。
+`get_thread` は取り上げる数件にしか呼ばないので、候補が何十件あっても本文取得のコストは取り上げ件数に比例する。`mail-digest` は Gmail を触らず、`mail-watch` が作った完成済みの 1 行を並べ直すだけ。
+
+### なぜ 2 ジョブに分けたか
+
+即時通知を成立させるには検知間隔を短くする必要があり（6h では「すぐ」にならない）、一方で通知回数は 1 日 1 回に抑えたい。この 2 つは 1 ジョブでは両立しない。`mail-watch` を 2h ごとに走らせて検知を細かくし、投稿だけを `mail-digest` に切り出して 1 日 1 回に固定した。「いまが朝 8 時半かどうか」を prompt に判定させるより、systemd timer の別インスタンスに任せるほうが確実。
 
 ## 事前セットアップ
 
-### 1. 通知済み記録ファイルの初期化
+### 1. 状態ファイルの初期化
 
 ```bash
 mkdir -p ~/hermes-lite/var/mail-watch
 printf '{\n  "notified": []\n}\n' > ~/hermes-lite/var/mail-watch/notified.json
+printf '{\n  "pending": []\n}\n' > ~/hermes-lite/var/mail-watch/pending.json
 ```
 
-prompt 側は「ファイルが無ければ空リストとして続行」と指示してあるので初回でも動くが、明示的に置いておくほうが確実。`var/*` は `.gitignore` 済みで、git には乗らないランタイムデータ。
+`notified.json` は処理済み thread ID（即時通知した分と保留に積んだ分の両方）、`pending.json` は翌朝のまとめ待ちキュー。prompt 側は「ファイルが無ければ空リストとして続行」と指示してあるので初回でも動くが、明示的に置いておくほうが確実。`var/*` は `.gitignore` 済みで、git には乗らないランタイムデータ。
 
 **Gmail 側の設定（ラベル作成・フィルタ）は一切不要**。重要かどうかの判定はジョブ側で行い、通知済みの記録もローカルに持つ。
 
@@ -65,12 +84,18 @@ MAIL_WATCH_CHANNEL_IDS=1234567890                                  # 同じチ�
 
 ただし日々の微調整は prompt.md を直接いじらず、次の「フィードバックでルールを直す」を使う。prompt.md は**骨格**（自動では書き換わらない部分）として残す。
 
+### 4. 何を「至急」とみなすかを決める
+
+`prompt.md` の「即時通知の基準」節が、重要と判定したメールを **その場で割り込み通知するか / 翌朝のまとめに回すか** を決める。判断の軸は重要度の高さではなく**時間的な猶予**で、「明日の朝知って間に合うか」に間に合わないものだけが即時になる（不正利用の疑い、失効の早い認証コード、24 時間以内の期限、当日・翌日の予定変更、当日中の返信要求など）。それ以外はすべてまとめ行き、迷ったらまとめ行き。
+
+即時通知が多すぎる／少なすぎると感じたらこの節を調整する。`rules.md`（フィードバック学習分）は**通知するかどうか**にしか効かず、即時かまとめかの振り分けには関与しない。
+
 ## フィードバックでルールを直す
 
 mail-watch 専用チャンネルに「これは実は重要じゃない」と書くと、その場で判定ルールが更新される。
 
 ```
-[mail-watch] 重要 2 件 / 直近12h（候補 14 件・除外 12 件）
+[mail-digest] 重要メール 2 件
 - `1a2b3c4d` paiza | 【スカウト】… | …
 - `9f0e1d2c` 三井住友カード | ご利用代金明細 | …
 ```
@@ -107,25 +132,34 @@ git 履歴が残らない代わりに、`var/mail-watch/rules.bak/<ts>.md`（直
 
 ## systemd timer 登録
 
+検知（2 時間おき）とまとめ投稿（毎日 08:30）で 2 つの timer を登録する。
+
 ```bash
 mkdir -p ~/.config/systemd/user/claude-agent@mail-watch.timer.d
 cat > ~/.config/systemd/user/claude-agent@mail-watch.timer.d/schedule.conf <<'EOF'
 [Timer]
-OnCalendar=*-*-* 00,06,12,18:00:00
+OnCalendar=*-*-* 00/2:00:00
+EOF
+
+mkdir -p ~/.config/systemd/user/claude-agent@mail-digest.timer.d
+cat > ~/.config/systemd/user/claude-agent@mail-digest.timer.d/schedule.conf <<'EOF'
+[Timer]
+OnCalendar=*-*-* 08:30:00
 EOF
 
 systemctl --user daemon-reload
 systemctl --user enable --now claude-agent@mail-watch.timer
+systemctl --user enable --now claude-agent@mail-digest.timer
 ```
 
-これで 6 時間おき（00:00 / 06:00 / 12:00 / 18:00 JST）に走る。
+`mail-digest` を 08:30 にしているのは、08:00 の `jobwatch-review` と重ならないようにするため。
 
-**検索窓 12h に対して実行間隔が 6h** なので、各メールは通常 2 回評価される。1 回目で「重要でない」と判定されても 2 回目で拾い直せる冗長性であり、ジョブが 1 回失敗しても取りこぼさない。実行間隔を変える場合、窓（prompt.md の `newer_than:12h`）が間隔の 2 倍になるよう合わせること。
+**検索窓 12h に対して実行間隔が 2h** なので、各メールは通常 6 回評価される。一度扱った thread は `notified.json` で除外されるので重複はせず、ジョブが数回失敗しても取りこぼさない。実行間隔を延ばす場合、窓（prompt.md の `newer_than:12h`）が間隔の 2 倍以上あるよう合わせること。
 
 タイマー状態の確認:
 
 ```bash
-systemctl --user list-timers --all | grep mail-watch
+systemctl --user list-timers --all | grep -E 'mail-watch|mail-digest'
 systemctl --user status claude-agent@mail-watch.timer
 ```
 
@@ -135,18 +169,19 @@ systemctl --user status claude-agent@mail-watch.timer
 
 ```bash
 ~/hermes-lite/bin/run-claude.sh mail-watch
+~/hermes-lite/bin/run-claude.sh mail-digest
 ```
 
 実行後の確認ポイント:
 
-- `~/hermes-lite/logs/mail-watch/<timestamp>.json` の `.result` に通知本文または `[NOOP]` または `ERROR: ...` が入っている
+- `~/hermes-lite/logs/mail-watch/<timestamp>.json` の `.result` に至急通知本文または `[NOOP]` または `ERROR: ...` が入っている
 - `~/hermes-lite/logs/mail-watch/<timestamp>.stderr` に `[run-claude]` ログが残る
-  - 0 件時は `result matched SUPPRESS_RESULT_IF — skipping Discord post` が出る
+  - 至急 0 件時は `result matched SUPPRESS_RESULT_IF — skipping Discord post` が出る
 - `.is_error == false` かつ exit code 0 が正常終了
-- `var/mail-watch/notified.json` に通知した thread が追記されている
-- 通知本文の `（候補 M 件・除外 K 件）` を見て、判定が厳しすぎ／緩すぎないか確認する
+- `var/mail-watch/pending.json` に保留分が積まれ、`var/mail-watch/notified.json` に即時・保留の両方が追記されている
+- `mail-digest` を走らせると pending の中身が 1 通で投稿され、`pending.json` が `{"pending": []}` に戻る
 
-同じメールでもう一度試したいときは `notified.json` の該当エントリを消す。
+`mail-digest` だけを試したいときは、`pending.json` に手でエントリを 1 件書いてから走らせるのが早い。同じメールでもう一度 `mail-watch` を試したいときは `notified.json` の該当エントリを消す。
 
 ## 仕様まとめ
 
@@ -155,26 +190,31 @@ systemctl --user status claude-agent@mail-watch.timer
 | 検索クエリ | `newer_than:12h in:inbox -in:trash -in:spam -category:promotions -category:social` |
 | 検索取得上限 | `pageSize=50`、**ページングしない**（50 件到達時は通知本文に注記） |
 | 粒度 | thread |
-| 通知済みの記録 | `var/mail-watch/notified.json`（`threadId` + `at`。3 日より古いエントリは毎回捨てる） |
-| 一次スクリーニング | 通知済み・TRASH/SPAM を機械的に除外 → 件名 + snippet のみで判定（`get_thread` は呼ばない） |
-| 二次（本文取得） | 通知対象のみ `get_thread` |
-| 1 サイクル通知上限 | **5 件**（重要度の高い順、同程度なら古い順） |
-| 通知フォーマット | `重要 N 件 / 直近12h（候補 M 件・除外 K 件）\n- ` + 短縮 ID + ` 差出人 \| 件名 \| 1 行要約` × N（`[mail-watch] ` はラッパーが前置する） |
+| 処理済みの記録 | `var/mail-watch/notified.json`（`threadId` + `at`。即時通知分と保留分の両方。3 日より古いエントリは毎回捨てる） |
+| 保留キュー | `var/mail-watch/pending.json`（`threadId` + 完成済みの `line` + `at`。7 日より古いエントリは捨てる） |
+| 一次スクリーニング | 処理済み・TRASH/SPAM を機械的に除外 → 件名 + snippet のみで判定（`get_thread` は呼ばない） |
+| 二次（本文取得） | 取り上げ対象のみ `get_thread` |
+| 1 サイクル取り上げ上限 | **5 件**（重要度の高い順、同程度なら古い順） |
+| 即時 / 保留の振り分け | `prompt.md` の「即時通知の基準」。軸は重要度ではなく**時間的猶予**、迷ったら保留 |
+| 即時通知フォーマット | `至急 N 件（保留 P 件は翌朝まとめ）\n- ` + 短縮 ID + ` 差出人 \| 件名 \| 1 行要約` × N（`[mail-watch] ` はラッパーが前置する） |
+| まとめ通知フォーマット | `重要メール N 件\n` + 保留した行をそのまま古い順に（`[mail-digest] ` はラッパーが前置する） |
+| まとめの表示上限 | **20 件**（超過分もキューからは消し、翌日に持ち越さない） |
 | 判定ルール | `prompt.md` の「重要度の基準」（骨格）＋ `var/mail-watch/rules.md`（学習分・上乗せ）。安全ネット 4 項目は上書き不可 |
-| 通知先 | `MAIL_WATCH_DISCORD_WEBHOOK_URL`（未設定なら `DISCORD_WEBHOOK_URL`） |
-| 0 件時 | claude が `[NOOP]` を返し、ラッパーが `SUPPRESS_RESULT_IF` で投稿スキップ |
-| 記録の更新 | **通知したものだけ**。通知本文を返す前に完了させる |
+| 通知先 | `MAIL_WATCH_DISCORD_WEBHOOK_URL`（未設定なら `DISCORD_WEBHOOK_URL`）。2 ジョブとも同じ |
+| 0 件時 | claude が `[NOOP]` を返し、ラッパーが `SUPPRESS_RESULT_IF` で投稿スキップ（`mail-watch` は至急 0 件、`mail-digest` は保留 0 件） |
+| 記録の更新 | 通知本文を返す**前**に完了させる。`pending.json` → `notified.json` の順（前者が失敗したら後者も更新しない） |
 | Calendar / Notion 書き込み | 禁止（`lib/disallowed-tools.txt` により自動拒否） |
 | 失敗時 | `NOTIFY_ON_ERROR=1` で Discord に FAIL 通知 |
-| スケジュール | `*-*-* 00,06,12,18:00:00`（6h ごと） |
+| スケジュール | `mail-watch` = `*-*-* 00/2:00:00`（2h ごと） / `mail-digest` = `*-*-* 08:30:00`（1 日 1 回） |
 
-`job.env` の `ALLOWED_TOOLS` は `search_threads` / `get_thread` / `Read` / `Write` の 4 つ。`Read` と `Write` は `notified.json` 専用として prompt で用途を限定している（ツール単位では絞れないため、パスの限定は prompt の指示に依存する）。これに加えて `lib/disallowed-tools.txt` で Calendar 系・Notion 書き込み・Gmail 下書き作成・破壊的 Bash を wrapper レベルで拒否している。
+`jobs/mail-watch/job.env` の `ALLOWED_TOOLS` は `search_threads` / `get_thread` / `Read` / `Write` の 4 つ。`Read` は `notified.json` / `pending.json` / `rules.md`、`Write` は `notified.json` / `pending.json` に限定してあるが、これはツール単位では絞れないため prompt の指示に依存する。`jobs/mail-digest/job.env` は `Read` / `Write` のみで、Gmail ツールを一切持たない。これに加えて `lib/disallowed-tools.txt` で Calendar 系・Notion 書き込み・Gmail 下書き作成・破壊的 Bash を wrapper レベルで拒否している。
 
 ### 実測（2026-07-28）
 
 - `newer_than:12h in:inbox -category:promotions -category:social` の候補は **8 thread**。内訳はスカウト系（paiza / マイナビ）、GitHub 通知、Google ニュース、Quora、メルカリ、Moneytree など。判定の結果、**通知 1 件・除外 7 件**（通知されたのは Moneytree の大口取引検知）。`pageSize=50` は当面十分。
 - `in:inbox` を指定しても **全 message が `TRASH` の thread が返る**。クエリに `-in:trash -in:spam` を足したうえで、一次スクリーニングでも `labelIds` を見て捨てる二重の防御にしている。
 - 1 回あたりのコストは **0.38〜0.53 USD / 5〜7 ターン**。`MAX_BUDGET_USD="1.00"` に対して余裕は大きくないので、受信が多い日に上限へ当たるようなら引き上げる。
+- 2026-08-01 に実行間隔を 6h → 2h にしたので、`mail-watch` は 1 日 4 回から 12 回に増えた（`mail-digest` は 1 日 1 回・0.16〜0.18 USD で、Gmail を叩かないぶん軽い）。Claude Max の OAuth 枠なので金銭的な請求は発生しないが、消費するトークン量は約 3 倍になる。他のジョブが枠を食って困るようなら、まずここの間隔を 3h / 4h に戻す。
 
 ## 設計判断
 
@@ -239,13 +279,17 @@ systemctl --user status claude-agent@mail-watch.timer
 - **Phase 1（Issue #2, 2026-07）**: ユーザーが Gmail フィルタで `hermes-lite` ラベルを貼り、その未読 thread（`label:hermes-lite is:unread`）を通知。通知後に `hermes-lite` → `hermes-lite/done` へ付け替えて重複を防ぐ設計だった（この 2 ラベルは結局作成されず、実運用されないまま終わった）。
 - **2026-07-28 の書き換え**: 「何を通知するか」の条件を Gmail フィルタで人間が書き下ろす必要があり、条件から漏れたメールは永久に拾われなかった。判定を claude 側に移し、直近 12h の受信を全部評価する方式に変更。
 - **2026-07-28 の追加修正**: 通知済みマーカーを Gmail ラベル（`helmeslite-done`）で持つ設計にしたが、コネクタのスコープ不足で `label_thread` が使えず断念。ローカルファイル `var/mail-watch/notified.json` に移した。Gmail 側の設定は完全に不要になった。
+- **2026-08-01**: 通知が 6h ごとに届いて多すぎたため、**投稿を 1 日 1 回にまとめる**構成へ変更。`mail-watch` は検知と振り分けだけを行い（間隔を 2h に短縮）、重要と判定したメールは原則 `pending.json` に積む。翌朝 08:30 の `mail-digest` が 1 通にまとめて投稿する。即時通知は「明日の朝では間に合わない」ものだけの例外に格下げした（`prompt.md` の「即時通知の基準」）。あわせて、claude が説明文の後ろに `[NOOP]` を置いたときに不要通知が飛んでいた穴（2026-07-31 実測）を `run-claude.sh` の末尾一致判定で塞いだ。
 - **2026-07-29**: 通知を専用チャンネルへ分離し（`MAIL_WATCH_DISCORD_WEBHOOK_URL`）、そのチャンネルでのフィードバックから `var/mail-watch/rules.md` を更新する経路を追加。判定基準を「prompt.md の骨格（人間が編集）＋ rules.md の学習分（Discord から更新）」の 2 層にした。通知本文に短縮 thread ID を出すようにしたのもこのとき。
 
 ## 関連ファイル
 
-- `jobs/mail-watch/prompt.md` — claude 向け指示。**重要度の基準はここで調整する**
+- `jobs/mail-watch/prompt.md` — 検知側の claude 向け指示。**重要度の基準と即時通知の基準はここで調整する**
 - `jobs/mail-watch/job.env` — ALLOWED_TOOLS / MAX_TURNS など
-- `var/mail-watch/notified.json` — 通知済み thread ID（git 管理外）
+- `jobs/mail-digest/prompt.md` — まとめ投稿側の指示。メールは読まず pending の行を並べるだけ
+- `jobs/mail-digest/job.env` — ALLOWED_TOOLS は `Read Write` のみ
+- `var/mail-watch/notified.json` — 処理済み thread ID（即時通知分＋保留分。git 管理外）
+- `var/mail-watch/pending.json` — 翌朝のまとめ待ちキュー（git 管理外）
 - `var/mail-watch/rules.md` — フィードバックで学習した追加ルール（git 管理外）。`rules.bak/` と `rules-audit.jsonl` が併走する
 - `gateway/discord/mail_rules_handler.py` — 専用チャンネルの発言を受けて `rules.md` を編集するハンドラ
 - `gateway/discord/mail_rules_prompt.md` — そのハンドラが `claude -p` に渡すプロンプト（**呼び出しごとに読み直すので、ここだけの変更なら bot 再起動は不要**）

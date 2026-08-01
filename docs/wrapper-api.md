@@ -29,7 +29,7 @@
 | `MODEL` | `$DEFAULT_MODEL` (`.env`) | `--model` 引数 | `MODEL="sonnet"` | `sonnet` / `opus` / `haiku` / `fable` 等 | 不明な値は `claude -p` 側でエラー化 |
 | `NOTIFY_RESULT` | `"0"` | 正常終了時の result を Discord に投稿するか | `NOTIFY_RESULT="1"` | `"1"` のみ true | それ以外は false（silent） |
 | `NOTIFY_ON_ERROR` | `"1"` | 失敗時の概要を Discord に投稿するか | `NOTIFY_ON_ERROR="0"` で無効化 | `"1"` のみ true | それ以外は false（silent） |
-| `SUPPRESS_RESULT_IF` | `""` | 最終応答が完全一致したら投稿スキップ（opt-in） | `SUPPRESS_RESULT_IF="[NOOP]"` | 非空文字列が完全一致 | 値内のメタ文字 (`[`, `*`, `?`) は literal 扱い |
+| `SUPPRESS_RESULT_IF` | `""` | 最終応答が一致したら投稿スキップ（opt-in） | `SUPPRESS_RESULT_IF="[NOOP]"` | 非空文字列が **trim 後に完全一致、またはこの文字列で終わる** | 値内のメタ文字 (`[`, `*`, `?`) は literal 扱い。末尾一致も見るのは、claude が指示に反して前置きの説明文を書いたうえで最後に `[NOOP]` を置く事故が実測であったため（2026-08-01） |
 | `SUPPRESS_EMPTY_RESULT` | `"0"` | 空 RESULT_TEXT の `(no result text)` 投稿をスキップ（opt-in） | `SUPPRESS_EMPTY_RESULT="1"` | `"1"` のみ true | `"0"`, `""`, `"2"`, `"yes"`, `"true"` 等すべて false（silent） |
 | `RESULT_ERROR_PREFIX` | `"ERROR:"` | RESULT_TEXT がこの prefix で始まる場合 FAIL 経路扱い | `RESULT_ERROR_PREFIX=""` で無効化、`RESULT_ERROR_PREFIX="[ERR]"` で別 prefix に | 空文字 = 検出無効化、それ以外 = literal prefix | 値内の `[`, `*`, `?` 等は literal 扱い（substring 比較）。**先頭・末尾空白も literal**（quote 必須） |
 
