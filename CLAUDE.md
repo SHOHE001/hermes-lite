@@ -64,6 +64,7 @@ Hermes 本家を Anthropic OAuth (Claude Pro/Max) で動かしても、Anthropic
 - `bin/` — `run-claude.sh`（ジョブ共通ラッパー）
 - `lib/` — `disallowed-tools.txt` / `notify.sh`（Discord webhook 投稿関数）
 - `jobs/` — 定期実行ジョブ。各ジョブは `jobs/<name>/{prompt.md, job.env}` の 2 ファイル構成
+- `jobs/_archived/` — 役目を終えたジョブの置き場。各ディレクトリの `README.md` に「何だったか / いつ動いていたか / なぜ止めたか」が書いてある。ここに入っているものは systemd timer も削除済みで、動かす前提ではない
 - `systemd/` — `claude-agent@.{service,timer}` テンプレ（systemd user に登録）
 - `logs/` — `<name>/` 配下に試走ログ + cost.csv
 - `docs/` — 内部設計メモ + 各機能セットアップ手順

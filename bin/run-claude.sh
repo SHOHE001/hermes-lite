@@ -41,6 +41,11 @@ LOG_DIR="$HERMES_HOME/logs/$JOB_NAME"
 COST_CSV="$LOG_DIR/cost.csv"
 
 if [[ ! -d "$JOB_DIR" ]]; then
+  # 廃止済みジョブを叩いたときは、ただの not found ではなくその旨を返す
+  if [[ -d "$HERMES_HOME/jobs/_archived/$JOB_NAME" ]]; then
+    echo "[run-claude] ERROR: '$JOB_NAME' は廃止済み。jobs/_archived/$JOB_NAME/README.md に経緯がある" >&2
+    exit 2
+  fi
   echo "[run-claude] ERROR: job dir not found: $JOB_DIR" >&2
   exit 2
 fi
@@ -77,7 +82,7 @@ SUPPRESS_RESULT_IF=""
 SUPPRESS_EMPTY_RESULT="0"
 
 # RESULT_TEXT がこの prefix で始まる場合に FAIL 経路扱いとする。
-# 既定 "ERROR:" は 4 job (mail-watch / goals-nudge / approval-demo-proposer / interview-mail-proposer) の既存契約。
+# 既定 "ERROR:" は mail-watch / mail-digest / goals-nudge / approval-demo-proposer の既存契約。
 # 空文字に設定すれば検出を無効化できる。値内の [, *, ? 等のメタ文字は literal 扱い。
 RESULT_ERROR_PREFIX="ERROR:"
 

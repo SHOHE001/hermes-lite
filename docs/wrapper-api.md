@@ -56,11 +56,12 @@
 以下の既存 4 job は **すべて prompt 側で `ERROR:` を fail シグナルとして使っている**ため、`RESULT_ERROR_PREFIX=""` を設定すると本来 FAIL すべき結果が silent OK 化する:
 
 - `jobs/mail-watch/`
+- `jobs/mail-digest/`
 - `jobs/goals-nudge/`
 - `jobs/approval-demo-proposer/`
-- `jobs/interview-mail-proposer/`
 
 これらの job では `RESULT_ERROR_PREFIX` を空文字に設定する変更を行わないこと。
+（`jobs/_archived/interview-mail-proposer/` も同じ契約だが、2026-08-01 に廃止済み）
 
 ### カスタム prefix にする場合
 
