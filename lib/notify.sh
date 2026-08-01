@@ -21,8 +21,13 @@ notify_discord() {
   # jq で JSON を安全に組み立てる
   local payload
   payload=$(jq -n --arg c "$message" '{content: $c}')
-  # 失敗してもジョブは止めない
-  curl -fsS -X POST -H "Content-Type: application/json" \
+  # 失敗してもジョブは止めない。
+  # ただし 1 発勝負にはしない: 2026-07-08 / 07-09 に DNS の一時失敗
+  # (Temporary failure in name resolution) で投稿が落ち、しかも落ちたのが
+  # ジョブ失敗を知らせる FAIL 通知そのものだったため、障害が二重に沈黙した。
+  # --retry-all-errors は 4xx/5xx も含めて再試行する（webhook 側の 5xx 対策）。
+  curl -fsS --retry 3 --retry-delay 2 --retry-connrefused --retry-all-errors \
+    --max-time 20 -X POST -H "Content-Type: application/json" \
     -d "$payload" "$DISCORD_WEBHOOK_URL" >/dev/null 2>&1 \
-    || echo "[notify] WARN: Discord post failed" >&2
+    || echo "[notify] WARN: Discord post failed (after retries)" >&2
 }

@@ -25,7 +25,7 @@
 | `ALLOWED_TOOLS` | `""` | 空白区切りの allowed-tools リスト（`disallowed-tools.txt` と被ったらこちらが優先） | `ALLOWED_TOOLS="WebSearch WebFetch"` | 非空かつ非空白 | 空文字は「許可リスト指定なし」（既定挙動） |
 | `MAX_TURNS` | `$DEFAULT_MAX_TURNS` (`.env`) | claude のマックスターン数（暴走防止） | `MAX_TURNS="5"` | 整数文字列 | 非整数は `claude -p` 側でエラー化 |
 | `TIMEOUT_SEC` | `$DEFAULT_TIMEOUT_SEC` (`.env`) | `timeout` コマンドに渡す秒数 | `TIMEOUT_SEC="180"` | 整数文字列 | 非整数は `timeout` 側でエラー化 |
-| `MAX_BUDGET_USD` | `$DEFAULT_MAX_BUDGET_USD` (`.env`) | `--max-budget-usd` 引数（Max サブスクでは保険） | `MAX_BUDGET_USD="0.50"` | 数値文字列 | `claude -p` 側で判定 |
+| `MAX_BUDGET_USD` | `$DEFAULT_MAX_BUDGET_USD` (`.env`) | `--max-budget-usd` 引数。**Max の OAuth 枠でも効く**（超えると `subtype=error_max_budget_usd` / `is_error=true` で落ち、その回の処理は失われる） | `MAX_BUDGET_USD="0.50"` | 数値文字列 | `claude -p` 側で判定。実測コストの 2〜3 倍を入れておく |
 | `MODEL` | `$DEFAULT_MODEL` (`.env`) | `--model` 引数 | `MODEL="sonnet"` | `sonnet` / `opus` / `haiku` / `fable` 等 | 不明な値は `claude -p` 側でエラー化 |
 | `NOTIFY_RESULT` | `"0"` | 正常終了時の result を Discord に投稿するか | `NOTIFY_RESULT="1"` | `"1"` のみ true | それ以外は false（silent） |
 | `NOTIFY_ON_ERROR` | `"1"` | 失敗時の概要を Discord に投稿するか | `NOTIFY_ON_ERROR="0"` で無効化 | `"1"` のみ true | それ以外は false（silent） |

@@ -14,7 +14,7 @@
 #   ALLOWED_TOOLS         ... 空白区切り。disallowed と被ったらこちらが優先（claude CLI 仕様）
 #   MAX_TURNS             ... 既定 DEFAULT_MAX_TURNS
 #   TIMEOUT_SEC           ... 既定 DEFAULT_TIMEOUT_SEC
-#   MAX_BUDGET_USD        ... 既定 DEFAULT_MAX_BUDGET_USD（Max サブスク利用時は実害なし、保険）
+#   MAX_BUDGET_USD        ... 既定 DEFAULT_MAX_BUDGET_USD。OAuth 枠でも効き、超えると is_error で落ちる
 #   MODEL                 ... 既定 DEFAULT_MODEL
 #   NOTIFY_RESULT         ... 1 にすると正常終了時に result を Discord 投稿
 #   NOTIFY_ON_ERROR       ... 1 にすると失敗時に概要を Discord 投稿（既定 1）
@@ -117,8 +117,10 @@ CLAUDE_ARGS=(
   --permission-mode default
 )
 
-# MAX_BUDGET_USD は claude -p が API キー利用時のみ意味を持つ。
-# サブスク利用時にエラーにならないことを優先するため指定だけはしておく。
+# MAX_BUDGET_USD は Claude Max の OAuth 枠でも効く（当初「API キー利用時のみ意味を持つ」
+# と書いていたが誤り）。2026-08-01 に mail-digest が subtype=error_max_budget_usd /
+# is_error=true で落ちるのを実測した。上限に当たるとその回の処理が丸ごと失われるので、
+# 実測コストの 2〜3 倍を job.env に設定しておくこと。
 CLAUDE_ARGS+=(--max-budget-usd "$MAX_BUDGET_USD")
 
 if (( ${#DISALLOWED[@]} > 0 )); then

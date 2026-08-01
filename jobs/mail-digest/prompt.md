@@ -7,7 +7,7 @@
 - `Read`（保留キューの読み込み専用）
 - `Write`（保留キューの書き込み専用）
 
-Gmail・Calendar・Notion・シェル送信は一切呼ばないでください。`Read` と `Write` は `/home/shohei/hermes-lite/var/mail-watch/pending.json` **1 ファイルだけ** に使い、他のファイルには絶対に触らないこと。
+Gmail・Calendar・Notion・シェル送信は一切呼ばないでください。`Read` は `/home/shohei/hermes-lite/var/mail-watch/pending.json` **1 ファイルだけ**、`Write` は同 `pending.json` と `pending-sent.json`（投稿前の退避先）の **2 ファイルだけ** に使い、他のファイルには絶対に触らないこと。
 
 ## 設計の前提
 
@@ -47,9 +47,11 @@ Gmail・Calendar・Notion・シェル送信は一切呼ばないでください�
    - 1 行目に `[mail-digest]` は付けない（ラッパーが `[$JOB_NAME] ` を必ず前置するため、付けると二重になる）。
    - エントリが 20 件を超える場合は古い順に先頭 20 件だけを並べ、1 行目の末尾に ` ※古い順20件のみ表示` を追記する（21 件目以降もキューからは消す。翌日に持ち越さない）。
 
-3. **保留キューを空にする**（通知本文を返す前に必ず完了させる）
-   - `Write` で `/home/shohei/hermes-lite/var/mail-watch/pending.json` に `{"pending": []}` を書き込む。
-   - 書き込みが失敗した場合、最終応答に `ERROR: pending.json reset failed: <理由>` を返して終了（FAIL 経路）。**空にできないまま通知すると翌日も同じ内容が届くため、通知本文は返さないこと。**
+3. **保留キューを退避してから空にする**（通知本文を返す前に必ず完了させる）
+   - まず `Write` で `/home/shohei/hermes-lite/var/mail-watch/pending-sent.json` に、手順 1 で読んだ内容を**そのまま**書き出す（直前 1 世代のバックアップ。既存の内容は上書きしてよい）。
+   - 次に `Write` で `/home/shohei/hermes-lite/var/mail-watch/pending.json` に `{"pending": []}` を書き込む。
+   - どちらかの書き込みが失敗した場合、最終応答に `ERROR: pending.json reset failed: <理由>` を返して終了（FAIL 経路）。**空にできないまま通知すると翌日も同じ内容が届くため、通知本文は返さないこと。**
+   - 退避を先に取るのは、Discord への投稿が一時障害で落ちたときに（`lib/notify.sh` の投稿はジョブの外で行われ、claude 側からは成否が見えない）その日のまとめが跡形もなく消えるのを防ぐため。復旧するときは人間が `pending-sent.json` を `pending.json` に戻す。
 
 4. **最終応答テキストとして通知本文を返す**
    - 手順 2 で組み立てた通知本文を、claude の最終応答テキストとして **そのまま返す**。

@@ -192,6 +192,7 @@ systemctl --user status claude-agent@mail-watch.timer
 | 粒度 | thread |
 | 処理済みの記録 | `var/mail-watch/notified.json`（`threadId` + `at`。即時通知分と保留分の両方。3 日より古いエントリは毎回捨てる） |
 | 保留キュー | `var/mail-watch/pending.json`（`threadId` + 完成済みの `line` + `at`。7 日より古いエントリは捨てる） |
+| まとめ投稿の退避 | `var/mail-watch/pending-sent.json`（`mail-digest` が空化する直前の 1 世代。投稿が落ちた日はこれを `pending.json` に戻す） |
 | 一次スクリーニング | 処理済み・TRASH/SPAM を機械的に除外 → 件名 + snippet のみで判定（`get_thread` は呼ばない） |
 | 二次（本文取得） | 取り上げ対象のみ `get_thread` |
 | 1 サイクル取り上げ上限 | **5 件**（重要度の高い順、同程度なら古い順） |
@@ -290,6 +291,7 @@ systemctl --user status claude-agent@mail-watch.timer
 - `jobs/mail-digest/job.env` — ALLOWED_TOOLS は `Read Write` のみ
 - `var/mail-watch/notified.json` — 処理済み thread ID（即時通知分＋保留分。git 管理外）
 - `var/mail-watch/pending.json` — 翌朝のまとめ待ちキュー（git 管理外）
+- `var/mail-watch/pending-sent.json` — まとめ投稿の直前に取る退避（git 管理外）。投稿が Discord 側の障害で落ちた日は、これを `pending.json` に戻せばもう一度まとめられる
 - `var/mail-watch/rules.md` — フィードバックで学習した追加ルール（git 管理外）。`rules.bak/` と `rules-audit.jsonl` が併走する
 - `gateway/discord/mail_rules_handler.py` — 専用チャンネルの発言を受けて `rules.md` を編集するハンドラ
 - `gateway/discord/mail_rules_prompt.md` — そのハンドラが `claude -p` に渡すプロンプト（**呼び出しごとに読み直すので、ここだけの変更なら bot 再起動は不要**）
