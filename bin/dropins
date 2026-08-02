@@ -1,0 +1,237 @@
+#!/usr/bin/env bash
+# systemd drop-in をリポジトリで版管理し、実機との差分を検出・反映する。
+#
+# 背景:
+#   各ジョブの OnCalendar は ~/.config/systemd/user/<unit>.d/schedule.conf にしか
+#   存在せず、リポジトリ側には何も無かった。そのため goals-nudge は
+#   「docs/jobs-goals-nudge.md に手順が書いてあるのに実機には drop-in が無い」
+#   状態が約1ヶ月続き、週次通知が一度も発火しないまま誰も気づかなかった
+#   (docs/audit-2026-08-02.md A-1)。宣言をリポジトリに置き、実機との差分を
+#   毎朝の jobwatch-review で検出できるようにするのがこのスクリプトの目的。
+#
+# 使い方:
+#   bin/dropins check    差分を表示する。読み取り専用。差分があれば exit 1
+#   bin/dropins apply    repo の内容を実機へ反映する（適用前に自動バックアップ）
+#   bin/dropins import   実機の内容を repo へ取り込む（初回の source of truth 化用）
+#
+# 対象:
+#   systemd/drop-ins/ 配下のツリー。~/.config/systemd/user/ と同じ相対パス構造で置く。
+#   `*.example` は雛形。実体は個人環境固有の値を含むので追跡せず、存在確認だけする。
+#
+# 対象外:
+#   switchbot-action@* の drop-in。bin/sb-schedule が唯一の書き手であり、
+#   スケジュールは SB_ARGS を持つ var/switchbot-schedules/*.env とセットで初めて
+#   意味を持つ（env 側は deviceId を含むため .gitignore 対象）。ここで schedule.conf
+#   だけを二重管理すると、sb-schedule 経由の変更と drift する。
+#   単発スケジュール（OnCalendar に具体的な日付を書くもの）も混ざるため、
+#   恒久的な宣言として扱う対象からは外している。
+
+set -u
+
+HERMES_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SRC_DIR="$HERMES_HOME/systemd/drop-ins"
+DEST_DIR="$HOME/.config/systemd/user"
+BACKUP_ROOT="$HERMES_HOME/var/dropins-backup"
+
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+
+die() {
+  echo "dropins: ERROR: $*" >&2
+  exit 1
+}
+
+usage() {
+  cat <<'EOF'
+usage:
+  dropins check    差分を表示（読み取り専用。差分があれば exit 1）
+  dropins apply    repo の内容を実機へ反映
+  dropins import   実機の内容を repo へ取り込む（初回用）
+EOF
+}
+
+# systemd/drop-ins/ 配下の管理対象ファイルを相対パスで列挙する。
+# 例: claude-agent@mail-watch.timer.d/schedule.conf
+list_managed() {
+  [[ -d "$SRC_DIR" ]] || return 0
+  (cd "$SRC_DIR" && find . -type f -name '*.conf' -o -type f -name '*.conf.example' \
+    | sed 's|^\./||' | sort)
+}
+
+# 相対パスから unit 名を取り出す（例: claude-agent@mail-watch.timer.d/... → claude-agent@mail-watch.timer）
+unit_of() {
+  local rel="$1"
+  echo "${rel%%.d/*}"
+}
+
+cmd_check() {
+  local diff_found=0
+  local rel src dest
+
+  if [[ ! -d "$SRC_DIR" ]]; then
+    echo "dropins: $SRC_DIR がまだ無い。'dropins import' で実機から取り込むこと" >&2
+    return 1
+  fi
+
+  while IFS= read -r rel; do
+    [[ -n "$rel" ]] || continue
+    src="$SRC_DIR/$rel"
+
+    # *.example は雛形。実体（.example を外したパス）の有無だけを見る。
+    if [[ "$rel" == *.example ]]; then
+      dest="$DEST_DIR/${rel%.example}"
+      if [[ ! -f "$dest" ]]; then
+        echo "MISSING  ${rel%.example}  (雛形: $rel。実体が実機に無い)"
+        diff_found=1
+      else
+        echo "OK       ${rel%.example}  (実体あり。内容は環境固有なので比較しない)"
+      fi
+      continue
+    fi
+
+    dest="$DEST_DIR/$rel"
+    if [[ ! -f "$dest" ]]; then
+      echo "MISSING  $rel"
+      diff_found=1
+    elif ! diff -q "$src" "$dest" >/dev/null 2>&1; then
+      echo "DIFFERS  $rel"
+      diff -u "$dest" "$src" | sed 's/^/         /'
+      diff_found=1
+    else
+      echo "OK       $rel"
+    fi
+  done < <(list_managed)
+
+  # 実機にあるが repo に宣言が無いもの（switchbot 系は対象外なので除く）
+  local extra
+  extra=$(cd "$DEST_DIR" 2>/dev/null && find . -path '*.d/*.conf' -type f \
+    | sed 's|^\./||' | grep -v '^switchbot-action@' | sort || true)
+  local e
+  while IFS= read -r e; do
+    [[ -n "$e" ]] || continue
+    if [[ ! -f "$SRC_DIR/$e" && ! -f "$SRC_DIR/$e.example" ]]; then
+      echo "EXTRA    $e  (実機にあるが repo に宣言が無い)"
+      diff_found=1
+    fi
+  done <<< "$extra"
+
+  if (( diff_found )); then
+    echo ""
+    echo "差分あり。'dropins apply' で repo の内容を実機へ反映できる（EXTRA は手動で判断すること）"
+    return 1
+  fi
+  echo ""
+  echo "差分なし"
+  return 0
+}
+
+cmd_apply() {
+  [[ -d "$SRC_DIR" ]] || die "$SRC_DIR が無い。先に 'dropins import' を実行すること"
+
+  local stamp backup_dir
+  stamp="$(date +%Y%m%d-%H%M%S)"
+  backup_dir="$BACKUP_ROOT/$stamp"
+
+  local rel src dest changed=0 changed_units=()
+  while IFS= read -r rel; do
+    [[ -n "$rel" ]] || continue
+    # 雛形は自動適用しない（環境固有の値を含むため、人が中身を埋める）
+    [[ "$rel" == *.example ]] && continue
+
+    src="$SRC_DIR/$rel"
+    dest="$DEST_DIR/$rel"
+
+    if [[ -f "$dest" ]] && diff -q "$src" "$dest" >/dev/null 2>&1; then
+      continue
+    fi
+
+    # 既存を退避してから上書きする
+    if [[ -f "$dest" ]]; then
+      mkdir -p "$backup_dir/$(dirname "$rel")"
+      cp -p "$dest" "$backup_dir/$rel"
+    fi
+
+    mkdir -p "$(dirname "$dest")"
+    cp "$src" "$dest"
+    echo "適用: $rel"
+    changed_units+=("$(unit_of "$rel")")
+    changed=1
+  done < <(list_managed)
+
+  if (( ! changed )); then
+    echo "変更なし（すでに一致している）"
+    return 0
+  fi
+
+  [[ -d "$backup_dir" ]] && echo "退避先: $backup_dir"
+
+  systemctl --user daemon-reload
+  echo "daemon-reload 済み"
+
+  # 内容が変わった timer は enable + restart する。
+  # daemon-reload だけでは、既にロード済みの timer の次回発火が再計算されない。
+  # drop-in を差し替えた直後は Active: active (elapsed) / Trigger: n/a のまま残り、
+  # ファイルは正しいのに二度と発火しないという状態になる（2026-08-02 に実測）。
+  local u
+  for u in "${changed_units[@]}"; do
+    [[ -n "$u" ]] || continue
+    case "$u" in
+      *.timer)
+        systemctl --user enable "$u" >/dev/null 2>&1
+        if systemctl --user restart "$u"; then
+          echo "有効化+再起動: $u ($(systemctl --user show "$u" -p NextElapseUSecRealtime --value))"
+        else
+          echo "警告: $u の再起動に失敗した。systemctl --user status $u を確認すること" >&2
+        fi
+        ;;
+      *.service)
+        # 常駐サービスを勝手に落とさない（discord-gateway の再起動は会話を切る）
+        echo "注意: $u の drop-in を更新した。反映には手動で 'systemctl --user restart $u' が必要"
+        ;;
+    esac
+  done
+}
+
+cmd_import() {
+  mkdir -p "$SRC_DIR"
+  local imported=0 rel dest
+  local list
+  list=$(cd "$DEST_DIR" 2>/dev/null && find . -path '*.d/*.conf' -type f \
+    | sed 's|^\./||' | grep -v '^switchbot-action@' | sort || true)
+
+  while IFS= read -r rel; do
+    [[ -n "$rel" ]] || continue
+    dest="$SRC_DIR/$rel"
+
+    # 既に雛形として宣言済みなら実体は取り込まない（環境固有の値を含むため）
+    if [[ -f "$dest.example" ]]; then
+      echo "スキップ: $rel（雛形 $rel.example が既にある）"
+      continue
+    fi
+
+    mkdir -p "$(dirname "$dest")"
+    cp "$DEST_DIR/$rel" "$dest"
+    echo "取り込み: $rel"
+    imported=1
+  done <<< "$list"
+
+  (( imported )) || echo "取り込むものが無かった"
+  echo ""
+  echo "取り込んだ内容を確認し、環境固有の値を含むファイルは *.conf.example へ改名して"
+  echo ".gitignore に実体を追加すること。その後 'dropins check' で差分ゼロを確認する。"
+}
+
+main() {
+  local sub="${1:-}"
+  [[ -n "$sub" ]] || { usage; exit 2; }
+  shift || true
+
+  case "$sub" in
+    check) cmd_check "$@" ;;
+    apply) cmd_apply "$@" ;;
+    import) cmd_import "$@" ;;
+    -h|--help|help) usage ;;
+    *) usage; die "unknown subcommand: $sub" ;;
+  esac
+}
+
+main "$@"

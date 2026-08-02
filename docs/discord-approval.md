@@ -123,14 +123,14 @@ approval reject  <8hex>
 
 ```bash
 # bot の systemd unit に環境変数を追加
-mkdir -p ~/.config/systemd/user/hermes-lite-discord.service.d
-cat > ~/.config/systemd/user/hermes-lite-discord.service.d/approval.conf <<EOF
+mkdir -p ~/.config/systemd/user/discord-gateway.service.d
+cat > ~/.config/systemd/user/discord-gateway.service.d/approval.conf <<EOF
 [Service]
 Environment="HERMES_APPROVAL_COMMANDS_ENABLED=1"
 Environment="HERMES_APPROVAL_AUTHORIZED_USER_IDS=<discord-user-id>"
 EOF
 systemctl --user daemon-reload
-systemctl --user restart hermes-lite-discord.service
+systemctl --user restart discord-gateway.service
 ```
 
 `HERMES_APPROVAL_AUTHORIZED_USER_IDS` を明示設定しない場合、bot.py は `ALLOWED_USER_IDS` を `HERMES_APPROVAL_ALLOWED_USER_IDS_FALLBACK` として export するので、承認可能ユーザー = bot に応答可能ユーザー全員になる。

@@ -41,13 +41,17 @@
 
 3. **スケジュールを書く**（定期実行する場合のみ）
 
+   **実機に直接書かず、リポジトリ側に置く。**
+
    ```bash
-   mkdir -p ~/.config/systemd/user/claude-agent@<name>.timer.d
-   cat > ~/.config/systemd/user/claude-agent@<name>.timer.d/schedule.conf <<EOF
+   mkdir -p systemd/drop-ins/claude-agent@<name>.timer.d
+   cat > systemd/drop-ins/claude-agent@<name>.timer.d/schedule.conf <<EOF
    [Timer]
    OnCalendar=*-*-* 07:00:00
    EOF
    ```
+
+   実機にだけ書くと「docs には書いてあるのに動いていない」状態を検出できない。goals-nudge は実際にそれで約1ヶ月発火しなかった（`docs/audit-2026-08-02.md` A-1）。リポジトリに宣言を置けば `bin/dropins check` が差分を検出し、毎朝の `jobwatch-review` にも出る。
 
    よく使う `OnCalendar` 例：
 
@@ -61,10 +65,12 @@
 4. **登録 → 試走 → 結果報告**
 
    ```bash
-   systemctl --user daemon-reload
-   systemctl --user enable --now claude-agent@<name>.timer
+   bin/dropins check            # 差分（MISSING）が出ることを確認
+   bin/dropins apply            # 実機へ反映（daemon-reload と enable/restart も行う）
    bin/run-claude.sh <name>     # 試走（必須）
    ```
+
+   あわせて `~/.config/jobwatch/jobs.conf` にもエントリを足す。ここに無いジョブは監視対象外で、失敗しても誰も気づかない（mail-digest は稼働開始から1日、登録漏れで監視対象外だった）。
 
    試走結果（`logs/<name>/<timestamp>.json` の `.result`）を見て、失敗したら `prompt.md` を直す。
    最後にユーザーに「**作ったジョブ名・スケジュール・試走結果**」を簡潔に報告。

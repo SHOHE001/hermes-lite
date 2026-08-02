@@ -1,0 +1,14 @@
+; 承認ゲート (docs/discord-approval.md) を有効化する drop-in の雛形。
+;
+; 実体は ~/.config/systemd/user/discord-gateway.service.d/approval.conf に置く。
+; AUTHORIZED_USER_IDS は環境固有の Discord user ID なのでリポジトリでは追跡しない
+; （実体は .gitignore 対象）。値はカンマ区切りで複数指定できる。
+;
+;   mkdir -p ~/.config/systemd/user/discord-gateway.service.d
+;   cp systemd/drop-ins/discord-gateway.service.d/approval.conf.example \
+;      ~/.config/systemd/user/discord-gateway.service.d/approval.conf
+;   $EDITOR ~/.config/systemd/user/discord-gateway.service.d/approval.conf
+;   systemctl --user daemon-reload && systemctl --user restart discord-gateway.service
+[Service]
+Environment="HERMES_APPROVAL_COMMANDS_ENABLED=1"
+Environment="HERMES_APPROVAL_AUTHORIZED_USER_IDS=<承認を出せる Discord user ID をカンマ区切りで>"

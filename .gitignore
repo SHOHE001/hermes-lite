@@ -50,3 +50,6 @@ var/*
 # Issue #4 goals-nudge: ユーザー個人の目標ファイル（個人情報・未公開予定が混ざり得る）
 # `goals.md.example` から `cp goals.md.example goals.md` してローカル編集する
 /goals.md
+
+# 承認ゲート drop-in の実体（Discord user ID を含む）。雛形は approval.conf.example
+/systemd/drop-ins/discord-gateway.service.d/approval.conf

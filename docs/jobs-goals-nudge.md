@@ -113,17 +113,13 @@ jq -j '.result' "$HERMES_DIR"/logs/goals-nudge/<ts>.json | xxd
 上記の手動試走で Discord 通知 / NOOP 抑制 / FAIL 経路を確認してから実行する:
 
 ```bash
-mkdir -p ~/.config/systemd/user/claude-agent@goals-nudge.timer.d
-cat > ~/.config/systemd/user/claude-agent@goals-nudge.timer.d/schedule.conf <<'EOF'
-[Timer]
-OnCalendar=Sun *-*-* 20:00:00
-EOF
-
-systemctl --user daemon-reload
-systemctl --user enable --now claude-agent@goals-nudge.timer
+bin/dropins check    # 差分を確認（読み取り専用）
+bin/dropins apply    # 実機へ反映
 ```
 
-これで毎週日曜 20:00 JST に走る。
+スケジュールは `systemd/drop-ins/claude-agent@goals-nudge.timer.d/schedule.conf` に版管理されている（`OnCalendar=Sun *-*-* 20:00:00`）。これで毎週日曜 20:00 JST に走る。
+
+以前はここに `mkdir` と heredoc を直接書いていたが、その手順が最後まで実行されないまま約1ヶ月放置され、週次通知が一度も発火していなかった（`docs/audit-2026-08-02.md` A-1）。宣言をリポジトリに置き、`bin/dropins check` で実機との差分を検出できるようにしてある。毎朝の `jobwatch-review` もこの差分を見る。
 
 タイマー状態の確認:
 
