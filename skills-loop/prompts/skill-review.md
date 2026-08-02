@@ -54,9 +54,30 @@ If a tool failed because of setup state, capture the FIX (install command, confi
 
 ## hermes-lite 適応指示 (本家原文ではない、移植時の追記)
 
-- **配置場所は厳格に**: 新規 skill は **`~/.claude/skills/hermes-lite/<name>/SKILL.md`** に作る。`~/.claude/skills/hermes-lite/` 以外の場所には書かない。
-- **使うツール**: 本家の `skill_manage action=*` は無い。代わりに **Claude Code の `Read` / `Edit` / `Write` ツール** で `SKILL.md` / `references/*.md` / `templates/*` / `scripts/*` を直接編集する。
-- **Protected (絶対編集禁止)**: `~/.claude/skills/` 直下 (hermes-lite/ ディレクトリ以外) の skill。frontmatter に `metadata.hermes_lite.agent_created: true` が無いものは触ってはいけない。手動 skill (agy-review, log, MAGI, save 等) はすべてこのカテゴリ。
+- **ツールは一切使えません。ファイルを直接編集せず、更新内容を JSON で返してください。** 呼び出し元 (`skills-loop/bin/on-stop.py`) がその JSON を検証してファイルに書きます。`~/.claude/` 配下は Claude Code の保護対象で、子プロセスからは書き込めないためです（2026-08-02 に実測）。
+- **配置場所は厳格に**: 書けるのは `~/.claude/skills/hermes-lite/` 配下だけです。`path` はそこからの相対パスで書いてください。
+- **Protected (絶対に対象外)**: `~/.claude/skills/` 直下 (hermes-lite/ 以外) の skill。手動 skill (log, MAGI, save 等) はすべてこのカテゴリで、そもそも書き込み範囲外です。
+
+### 出力形式（厳守）
+
+最終応答は **JSON オブジェクト 1 個だけ**にしてください。前後に説明文やコードフェンスを付けないでください。
+
+更新が不要なとき:
+
+```
+{"action": "none", "reason": "Nothing to save."}
+```
+
+更新するとき:
+
+```
+{"action": "write", "reason": "なぜこの更新をするかを1〜2文で", "files": [{"path": "<skill-name>/SKILL.md", "content": "<ファイル全文>"}]}
+```
+
+- `path` は `~/.claude/skills/hermes-lite/` からの相対パス。絶対パスや `..` は拒否されます
+- 既存ファイルを patch する場合も **全文**を `content` に入れてください（差分ではありません）。現在の内容はこのプロンプトの「既存 hermes-lite skill」節に全文が載っています
+- `references/<topic>.md` `templates/<name>` `scripts/<name>` も同じ形式で追加できます
+- 1 回の応答で複数ファイルを書けます
 - **新規 skill の frontmatter は必ず以下の形**:
   ```yaml
   ---
