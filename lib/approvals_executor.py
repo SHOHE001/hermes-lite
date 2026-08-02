@@ -12,11 +12,9 @@ from __future__ import annotations
 
 import json
 import os
-import shlex
 import subprocess
 import sys
 import time
-import urllib.request
 from pathlib import Path
 from typing import Optional
 
@@ -254,24 +252,43 @@ def extract_event_links(proc_result: dict) -> list:
 # ---------------------------------------------------------------------------
 
 def notify_discord(message: str) -> None:
+    """lib/notify.sh に委譲する（実装は一本化する）。
+
+    以前はここに urllib の独自実装があったが、リトライを持っていなかった。
+    2026-08-01 に notify.sh 側だけが curl のリトライを獲得し、同じ webhook を
+    使いながら片方だけ一発勝負という状態になっていた。この関数は
+    calendar.create の副作用検証で異常を検知したときの
+    「Calendar 側で event を確認し、不要なら手動削除してください」警告を送る
+    唯一の経路なので、信頼性は notify.sh と揃えておく必要がある。
+
+    呼び出し方は ~/.config/jobwatch/jobs.conf の notify_cmd と同じ型
+    （bash から notify.sh を source して関数を呼ぶ）。実績のある形を踏襲する。
+    truncate も含めて notify.sh 側の実装がそのまま効く。
+    """
     if not _DISCORD_WEBHOOK:
         print(f"[notify] WARN: DISCORD_WEBHOOK_URL empty, skip: {message[:200]}",
               file=sys.stderr)
         return
-    if len(message) > 1900:
-        message = message[:1900] + "...(truncated)"
-    data = json.dumps({"content": message}).encode("utf-8")
-    req = urllib.request.Request(
-        _DISCORD_WEBHOOK,
-        data=data,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
+    # 子 bash には必要最小限の env だけ渡す（秘密の継承カットの方針は同じ）。
+    env = {
+        "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
+        "HOME": os.environ.get("HOME", ""),
+        "DISCORD_WEBHOOK_URL": _DISCORD_WEBHOOK,
+        "JOB_NAME": "approvals-executor",
+    }
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            resp.read()
+        subprocess.run(
+            ["bash", "-c",
+             '. "$1/lib/notify.sh"; notify_discord "$2"',
+             "notify_discord", str(_HERMES_HOME), message],
+            env=env,
+            # notify.sh は curl --retry 3 --retry-delay 2 --max-time 20 なので
+            # 最悪 70 秒近くかかる。それより短く切ると自前でリトライを潰すことになる。
+            timeout=90,
+            check=False,
+        )
     except Exception as e:
-        print(f"[notify] WARN: Discord post failed: {e}", file=sys.stderr)
+        print(f"[notify] WARN: notify.sh の呼び出しに失敗: {e}", file=sys.stderr)
 
 
 # ---------------------------------------------------------------------------
