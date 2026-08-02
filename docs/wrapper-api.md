@@ -65,7 +65,12 @@
 
 ### カスタム prefix にする場合
 
-`RESULT_ERROR_PREFIX="[ERR]"` のように別 prefix を指定すると、wrapper はそちらで FAIL 検出する。stderr ログは `[run-claude] FAIL via ERROR: prefix in result (<printf %q した値>)` という形式になり、grep 互換の既定文言 `FAIL via ERROR:` も依然マッチする。
+`RESULT_ERROR_PREFIX="[ERR]"` のように別 prefix を指定すると、wrapper はそちらで FAIL 検出する。stderr ログの文言は既定とカスタムで異なる。
+
+- 既定（`ERROR:`）: `[run-claude] FAIL via ERROR: line in result`
+- カスタム: `[run-claude] FAIL via error line in result (<printf %q した値>)`
+
+**カスタム prefix のときは `FAIL via ERROR:` にマッチしない**（`error` が小文字になる）。既定文言で grep 監視している場合はこの差に注意すること。判定が先頭一致から行単位に変わった際に文言が `prefix` から `line` へ変わっており、2026-08-02 まで本ドキュメントとハーネスが追従していなかった。
 
 ---
 
@@ -171,6 +176,28 @@ harness はこの間接切替に依拠する。`CLAUDE_BIN=stub` の env overrid
 - harness の fixture が drift していると感じたら、本体側の整合性を `docs/wrapper-api.md` 表と突き合わせて再確認する
 
 これは「wrapper API を文書化したのに harness が古い」状態を防ぐための運用ルール。
+
+**この規律が守られていなかった実例**: 2026-08-02 の点検時点で harness は 3 件失敗したまま放置されていた（`FAIL via ERROR: prefix` → `line` の文言変更に追従していない 2 件と、作業ブランチでしか成立しない `git diff main` ベースの検証 1 件）。テストが失敗したまま気づかれない状態自体が「壊れていても気づけない」構造の一部なので、変更のたびに必ず全 PASS を確認すること。
+
+---
+
+## 8. wrapper の終了コード
+
+| 終了コード | 意味 |
+|---|---|
+| `0` | OK 経路。claude が正常終了し、`is_error` でも `ERROR:` 行でもない |
+| `1` | FAIL 経路。claude の失敗 / タイムアウト / `is_error=true` / `ERROR:` 行の検出 / claude バイナリ不在 |
+| `2` | セットアップ不備。引数なし・ジョブディレクトリ不在・`prompt.md` 不在 |
+
+2026-08-02 まで、FAIL 経路も含めて**メインパスは常に `exit 0`** だった。理由として「systemd timer の連鎖を壊さないため」と書かれていたが、この前提は誤りである。systemd の timer は前回の service の `Result` を参照せず、`OnCalendar` 到達で独立して次回起動する。失敗したまま放置しても次回発火は止まらない。
+
+常に 0 を返していた結果、次の影響が出ていた。
+
+- `claude-agent@*.service` は永遠に `Result=success` になり、`systemctl --user list-units --failed` に何も現れない
+- jobwatch は claude-agent 系ジョブを「サービスの終了結果 + 結果ログ」で判定する設計なのに、前者が固定値になっていたため実質 `result_glob`（JSON の `is_error`）だけに依存していた
+- `result_glob` を持たない `switchbot-action@*` は exit code しか失敗の手がかりが無く、そこが潰れていた
+
+終了コードを変更する場合は harness の T11 / T12 / T13 が退行検出する。
 
 ---
 

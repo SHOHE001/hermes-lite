@@ -22,7 +22,12 @@
 #   SUPPRESS_EMPTY_RESULT ... 1 にすると空 result の "(no result text)" 投稿もスキップ（既定 0）
 #   RESULT_ERROR_PREFIX   ... RESULT_TEXT がこの prefix で始まる場合 FAIL 経路扱い（既定 "ERROR:"、空で無効化）
 #
-# ラッパー自体は失敗しても exit 0 で抜ける（systemd timer の連鎖を壊さないため）。
+# 終了コードの契約:
+#   0 ... OK 経路（claude が正常終了し is_error でも ERROR: 行でもない）
+#   1 ... FAIL 経路（claude の失敗 / タイムアウト / is_error / ERROR: 行 / claude 不在）
+#   2 ... セットアップ不備（引数なし・ジョブ不在・prompt.md 不在）
+# 非 0 を返しても systemd timer の次回発火は止まらない（timer は前回の service 結果を
+# 参照せず OnCalendar で独立に起動する）。詳細は末尾のコメント参照。
 
 set -u  # set -e は使わない。失敗してもログ→Discord通知→cost記録の流れを止めたくない。
 
@@ -103,7 +108,7 @@ CLAUDE_BIN="${CLAUDE_BIN:-$HOME/.local/bin/claude}"
 if [[ ! -x "$CLAUDE_BIN" ]]; then
   echo "[run-claude] ERROR: claude not found at $CLAUDE_BIN" >&2
   [[ "$NOTIFY_ON_ERROR" == "1" ]] && notify_discord "[$JOB_NAME] ERROR: claude binary not found"
-  exit 0  # ラッパーは静かに抜ける
+  exit 1  # 環境が壊れている。systemd 側にも失敗として見せる
 fi
 
 # --- ログファイル ---
@@ -180,6 +185,9 @@ echo "$TS,$EXIT_CODE,${IS_ERROR:-},${COST_USD:-},${INPUT_TOKENS:-},${OUTPUT_TOKE
 #
 # RESULT_ERROR_PREFIX が空のときはこの判定を無効化する。
 # substring 比較で literal 一致を保証（pattern matching に依存しない）。
+# 既定は失敗側。OK 経路に入ったときだけ 0 に落とす（set -u 対策も兼ねる）。
+WRAPPER_EXIT=1
+
 _has_error_line=0
 if [[ -n "$RESULT_ERROR_PREFIX" ]]; then
   while IFS= read -r _result_line; do
@@ -191,6 +199,7 @@ if [[ -n "$RESULT_ERROR_PREFIX" ]]; then
 fi
 
 if [[ "$EXIT_CODE" -eq 0 && "$IS_ERROR" != "true" && "$_has_error_line" -eq 0 ]]; then
+  WRAPPER_EXIT=0
   echo "[run-claude] OK exit=0 cost=${COST_USD:-?} in=${INPUT_TOKENS:-?} out=${OUTPUT_TOKENS:-?}" >&2
   if [[ "$NOTIFY_RESULT" == "1" ]]; then
     # 完全一致だけでなく「末尾一致」も抑止対象にする。claude が指示に反して
@@ -210,6 +219,7 @@ if [[ "$EXIT_CODE" -eq 0 && "$IS_ERROR" != "true" && "$_has_error_line" -eq 0 ]]
     fi
   fi
 else
+  WRAPPER_EXIT=1
   if [[ "$_has_error_line" -eq 1 && "$EXIT_CODE" -eq 0 && "$IS_ERROR" != "true" ]]; then
     if [[ "$RESULT_ERROR_PREFIX" == "ERROR:" ]]; then
       echo "[run-claude] FAIL via ERROR: line in result" >&2
@@ -226,10 +236,24 @@ else
       ERR_SNIPPET="$RESULT_TEXT"
     elif [[ -s "$ERR_LOG" ]]; then
       ERR_SNIPPET=$(tail -c 500 "$ERR_LOG")
+    elif [[ -n "$RESULT_TEXT" ]]; then
+      # 最後の手段: claude CLI 自身が返すエラーは ERROR: prefix を持たず stderr も空になる。
+      # 原因は JSON の .result にだけ入っているので、それを載せる。
+      # 2026-08-01 20:00 / 22:00 の mail-watch は
+      # "Failed to authenticate: OAuth session expired and could not be refreshed" を
+      # JSON に持っていたのに、通知には "(no stderr)" しか出ず原因が読めなかった。
+      ERR_SNIPPET=$(printf '%s' "$RESULT_TEXT" | tail -c 500)
     fi
     notify_discord "[$JOB_NAME] FAIL exit=$EXIT_CODE\n\`\`\`\n${ERR_SNIPPET:-(no stderr)}\n\`\`\`"
   fi
 fi
 
-# ラッパー自身は常に exit 0（タイマー連鎖を保つ）
-exit 0
+# FAIL 判定なら非 0 で抜ける。
+# 2026-08-02 まで「タイマー連鎖を保つ」という理由でここは常に exit 0 だったが、
+# その前提は誤りだった: systemd の timer は前回の service の Result を参照せず、
+# OnCalendar 到達で独立して次回起動する（失敗したままでも次回は動く）。
+# 常に 0 を返していたせいで claude-agent@*.service は永遠に Result=success となり、
+# systemctl --user list-units --failed にも jobwatch の「サービスの終了結果」判定にも
+# 失敗が一切現れなかった。result_glob を持たない switchbot-action@* に至っては
+# exit code だけが唯一の手がかりで、そこが潰れていた。
+exit "$WRAPPER_EXIT"

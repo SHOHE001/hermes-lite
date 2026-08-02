@@ -139,12 +139,14 @@ test_t04() {
   local discord_file="$STUB_DIR/$t_id.discord"
 
   # grep 互換: 既定 prefix のときは末尾 (...) 無し
-  if ! grep -qE 'FAIL via ERROR: prefix in result$' "$stderr_file"; then
-    fail "T04_error_default" "stderr に 'FAIL via ERROR: prefix in result' (末尾 (...) 無し) が無い: $(cat "$stderr_file")"
+  # 文言は "prefix" ではなく "line"（先頭一致 → 行単位判定に変えたときに実装だけ更新され、
+  # このハーネスが追従していなかった。2026-08-02 に実装側へ合わせた）
+  if ! grep -qE 'FAIL via ERROR: line in result$' "$stderr_file"; then
+    fail "T04_error_default" "stderr に 'FAIL via ERROR: line in result' (末尾 (...) 無し) が無い: $(cat "$stderr_file")"
     return
   fi
   # 末尾に (...) が付いていないことを negative 確認
-  if grep -qF 'FAIL via ERROR: prefix in result (' "$stderr_file"; then
+  if grep -qF 'FAIL via ERROR: line in result (' "$stderr_file"; then
     fail "T04_error_default" "stderr に末尾 (...) 付きの文言が含まれている（既定では付かないはず）: $(cat "$stderr_file")"
     return
   fi
@@ -191,7 +193,7 @@ test_t06() {
 
   # printf %q で [ERR] → \[ERR\] となる exact match。
   # bash 5+ では printf '%q' '[ERR]' は '\[ERR\]' を出す。
-  if ! grep -qF 'FAIL via ERROR: prefix in result (\[ERR\])' "$stderr_file"; then
+  if ! grep -qF 'FAIL via error line in result (\[ERR\])' "$stderr_file"; then
     fail "T06_error_custom_prefix" "stderr に exact '(\\[ERR\\])' 形式の FAIL ログが無い: $(cat "$stderr_file")"
     return
   fi
@@ -223,13 +225,12 @@ test_t07() {
 # T08: docs review
 # ============================================================
 test_t08() {
-  # (1) docs/jobs-mail-watch.md の旧記述削除を確認
-  local docs_diff
-  docs_diff=$(cd "$REPO_ROOT" && git diff main -- docs/jobs-mail-watch.md 2>&1 || true)
-  # diff の削除行に旧記述 '.result' + 'stderr で発見可能' が出ているか
-  # (.result はバッククォート quote されているので、間に他の文字も入る前提で fixed string で 2 段確認)
-  if ! echo "$docs_diff" | grep '^-' | grep -F 'stderr で発見可能' >/dev/null; then
-    fail "T08_docs_review" "docs/jobs-mail-watch.md の旧記述 'stderr で発見可能' が削除行に出ていない"
+  # (1) docs/jobs-mail-watch.md に旧記述が残っていないこと
+  # 元は `git diff main` の削除行を見ていたが、それは Issue #7 の作業ブランチでしか
+  # 成立しない検証で、main にマージされた後は必ず失敗していた（2026-08-02 に判明）。
+  # 現在の内容を直接見る静的検証に置き換える。
+  if grep -qF 'stderr で発見可能' "$REPO_ROOT/docs/jobs-mail-watch.md"; then
+    fail "T08_docs_review" "docs/jobs-mail-watch.md に旧記述 'stderr で発見可能' が残っている"
     return
   fi
 
@@ -310,6 +311,76 @@ test_t10() {
 }
 
 # ============================================================
+# T11: OK 経路は exit 0
+# ============================================================
+# 2026-08-02 まで wrapper は常に exit 0 だったため、systemd から見て
+# 全ジョブが永遠に成功だった。OK / FAIL で終了コードが分かれることを固定する。
+test_t11() {
+  # T01 の実行結果を再利用（実行順に依存）
+  local exit_file="$STUB_DIR/t01-default-compat.exit"
+  if [[ ! -f "$exit_file" ]]; then
+    fail "T11_ok_exit_zero" "T01 の exit ファイルが無い（実行順序の前提が崩れている）"
+    return
+  fi
+  local ec
+  ec=$(cat "$exit_file")
+  if [[ "$ec" != "0" ]]; then
+    fail "T11_ok_exit_zero" "OK 経路なのに exit code が 0 でない: $ec"
+    return
+  fi
+  pass "T11_ok_exit_zero"
+}
+
+# ============================================================
+# T12: FAIL 経路は exit 1
+# ============================================================
+test_t12() {
+  local exit_file="$STUB_DIR/t04-error-default.exit"
+  if [[ ! -f "$exit_file" ]]; then
+    fail "T12_fail_exit_nonzero" "T04 の exit ファイルが無い（実行順序の前提が崩れている）"
+    return
+  fi
+  local ec
+  ec=$(cat "$exit_file")
+  if [[ "$ec" != "1" ]]; then
+    fail "T12_fail_exit_nonzero" "FAIL 経路なのに exit code が 1 でない: $ec"
+    return
+  fi
+  pass "T12_fail_exit_nonzero"
+}
+
+# ============================================================
+# T13: is_error=true + ERROR: prefix 無し + stderr 空 → 原因が通知に載る
+# ============================================================
+# 2026-08-01 20:00/22:00 の mail-watch は OAuth 失効が result に入っていたのに
+# 通知は "(no stderr)" だけだった。その回帰テスト。
+test_t13() {
+  local t_id="t13-is-error-no-stderr"
+  run_job "$t_id"
+  local stderr_file="$STUB_DIR/$t_id.stderr"
+  local discord_file="$STUB_DIR/$t_id.discord"
+  local exit_file="$STUB_DIR/$t_id.exit"
+
+  if ! grep -qF 'FAIL exit=0 is_error=true' "$stderr_file"; then
+    fail "T13_is_error_fallback" "stderr に 'FAIL exit=0 is_error=true' が無い: $(cat "$stderr_file")"
+    return
+  fi
+  if grep -qF '(no stderr)' "$discord_file"; then
+    fail "T13_is_error_fallback" "discord log が '(no stderr)' のまま（原因が欠落している）: $(cat "$discord_file")"
+    return
+  fi
+  if ! grep -qF 'OAuth session expired' "$discord_file"; then
+    fail "T13_is_error_fallback" "discord log に result の原因テキストが載っていない: $(cat "$discord_file")"
+    return
+  fi
+  if [[ "$(cat "$exit_file")" != "1" ]]; then
+    fail "T13_is_error_fallback" "is_error=true なのに exit code が 1 でない: $(cat "$exit_file")"
+    return
+  fi
+  pass "T13_is_error_fallback"
+}
+
+# ============================================================
 # 実行
 # ============================================================
 echo "[harness] STUB_DIR=$STUB_DIR"
@@ -323,6 +394,9 @@ test_t07
 test_t08
 test_t09
 test_t10
+test_t11
+test_t12
+test_t13
 
 TOTAL=$((PASS_COUNT + FAIL_COUNT))
 if (( FAIL_COUNT > 0 )); then

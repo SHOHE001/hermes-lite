@@ -37,6 +37,11 @@ usage:
   sb-schedule add --name <name> --calendar "<OnCalendar式>" -- <switchbot.py 引数...>
   sb-schedule list
   sb-schedule remove --name <name>
+  sb-schedule sync-templates
+
+sync-templates は systemd/switchbot-action@.{service,timer} を
+~/.config/systemd/user/ へ再インストールする。テンプレート側を修正したとき、
+次の add を待たずに既存インスタンスへ反映させるために使う。
 
 <switchbot.py 引数...> の例:
   command <deviceId> turnOn
@@ -193,6 +198,14 @@ cmd_remove() {
   echo "OK: 削除しました: $name"
 }
 
+cmd_sync_templates() {
+  ensure_template_installed
+  systemctl --user daemon-reload
+  echo "OK: テンプレート unit を再インストールしました"
+  echo "  $SYSTEMD_USER_DIR/switchbot-action@.service"
+  echo "  $SYSTEMD_USER_DIR/switchbot-action@.timer"
+}
+
 main() {
   local sub="${1:-}"
   [[ -n "$sub" ]] || { usage; exit 2; }
@@ -202,6 +215,7 @@ main() {
     add) cmd_add "$@" ;;
     list) cmd_list "$@" ;;
     remove) cmd_remove "$@" ;;
+    sync-templates) cmd_sync_templates "$@" ;;
     -h|--help|help) usage ;;
     *) usage; die "unknown subcommand: $sub" ;;
   esac

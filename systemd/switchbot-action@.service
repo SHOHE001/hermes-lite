@@ -14,10 +14,18 @@ WorkingDirectory=__HERMES_HOME__
 EnvironmentFile=__HERMES_HOME__/.env
 # スケジュール個別の引数 (SB_ARGS)。bin/sb-schedule add が生成する。
 EnvironmentFile=__HERMES_HOME__/var/switchbot-schedules/%i.env
+# 失敗時は Discord へ通知したうえで、python の終了コードをそのまま systemd へ返す。
+# 2026-08-02 まで `|| notify_discord ...` で終わっていたため常に成功扱いになり、
+# このジョブ群は result_glob を持たない（＝exit code だけが失敗の手がかり）のに
+# systemctl --user list-units --failed にも jobwatch にも一切現れなかった。
 ExecStart=/usr/bin/env bash -c '\
   source __HERMES_HOME__/lib/notify.sh; \
-  python3 __HERMES_HOME__/lib/switchbot.py $SB_ARGS \
-    || notify_discord "⚠️ SwitchBot schedule %i 失敗 (SB_ARGS=$SB_ARGS)"'
+  python3 __HERMES_HOME__/lib/switchbot.py $SB_ARGS; \
+  ec=$$?; \
+  if [ "$$ec" -ne 0 ]; then \
+    notify_discord "⚠️ SwitchBot schedule %i 失敗 (SB_ARGS=$SB_ARGS, exit=$$ec)"; \
+  fi; \
+  exit "$$ec"'
 # Hardening（既存 claude-agent@.service と同等）
 ProtectSystem=full
 PrivateTmp=true
