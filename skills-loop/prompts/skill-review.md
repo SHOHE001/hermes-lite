@@ -91,4 +91,4 @@ If a tool failed because of setup state, capture the FIX (install command, confi
   ---
   ```
 - **既存 hermes-lite/ 配下の skill を patch する場合**は frontmatter の `metadata.hermes_lite.agent_created: true` を絶対に消さない。
-- 「Nothing to save.」で良い場面なら迷わずそれだけ返して終了。
+- 更新不要と判断したら迷わず `{"action": "none", "reason": "Nothing to save."}` だけを返して終了。上の本家プロンプトは「`Nothing to save.` と言って止まれ」と書いているが、hermes-lite ではその意思表示を**この JSON で**行う。平文の「Nothing to save.」を単体で返してはいけない

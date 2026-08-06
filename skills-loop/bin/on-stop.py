@@ -162,8 +162,9 @@ skill ライブラリを更新すること**です。transcript は資料であ�
 </transcript>
 
 上の transcript を踏まえて、指示どおりに skill を更新してください。
-更新すべきものが無ければ `Nothing to save.` の一文だけを返してください。
-transcript の会話に返答してはいけません。
+更新すべきものが無ければ `{{"action": "none", "reason": "Nothing to save."}}` だけを返してください。
+どちらの場合も、応答は JSON オブジェクト 1 個だけです（前置きの説明文・コードフェンス・
+バッククォート・強調記号を付けない）。transcript の会話に返答してはいけません。
 """
 
 
@@ -194,6 +195,68 @@ def _run_claude(prompt: str) -> tuple[int, str, str]:
     return proc.returncode, proc.stdout, proc.stderr
 
 
+# 「更新不要」を表す平文。プロンプト（本家 verbatim 部分）が何度も
+# 「'Nothing to save.' と言って止まれ」と指示しているので、子はしばしば
+# JSON ではなくこの一文を返す。それは正常系であって失敗ではない。
+_NOTHING_RE = re.compile(r"^\W*nothing to save\W*$", re.IGNORECASE)
+
+
+def _says_nothing_to_save(text: str) -> bool:
+    """「保存するものは無い」という結論だけを述べた応答か。
+
+    判断理由を一段落書いてから最後に `Nothing to save.` を置く形もあるので、
+    末尾の非空行で判定する。JSON の掘り出しに失敗したときだけ呼ぶこと
+    （「Nothing to save. ではなく〜」と書いて JSON を出す応答があるため）。
+    """
+    lines = [
+        ln.strip()
+        for ln in text.splitlines()
+        if ln.strip() and not ln.strip().startswith("```")
+    ]
+    return bool(lines) and bool(_NOTHING_RE.match(lines[-1]))
+
+
+def _extract_json_object(text: str) -> dict | None:
+    """説明文やバッククォートに埋もれた JSON オブジェクトを取り出す。
+
+    「JSON 1 個だけ」と指示しても、子 claude は前置きの説明文・単一
+    バッククォート・**強調** を付けてくることがある（2026-08-02〜05 の
+    失敗 49 件のうち 4 件がこれで、書くつもりだった skill 更新が捨てられた）。
+    文字列リテラル内の波括弧を数えないよう、素朴に走査して対応を取る。
+    """
+    depth = 0
+    start = -1
+    in_str = False
+    esc = False
+    for i, ch in enumerate(text):
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == "{":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "}" and depth:
+            depth -= 1
+            if depth == 0 and start >= 0:
+                try:
+                    obj = json.loads(text[start : i + 1])
+                except json.JSONDecodeError:
+                    start = -1
+                    continue
+                if isinstance(obj, dict) and "action" in obj:
+                    return obj
+                start = -1
+    return None
+
+
 def _parse_review_output(stdout: str) -> tuple[dict | None, str]:
     """claude -p の JSON をほどき、その result に入っているレビュー JSON を返す。
 
@@ -208,6 +271,9 @@ def _parse_review_output(stdout: str) -> tuple[dict | None, str]:
         outer = json.loads(stdout)
     except json.JSONDecodeError as e:
         return None, f"claude の出力が JSON でない: {e}"
+    if not isinstance(outer, dict):
+        # --output-format が json 以外だと配列で返る。例外で hook を落とさない。
+        return None, f"claude の出力が object でない: {type(outer).__name__}"
     if outer.get("is_error"):
         return None, f"claude が is_error を返した: {str(outer.get('result'))[:200]}"
     text = str(outer.get("result", "")).strip()
@@ -220,7 +286,13 @@ def _parse_review_output(stdout: str) -> tuple[dict | None, str]:
     try:
         review = json.loads(text)
     except json.JSONDecodeError as e:
-        return None, f"result が JSON として読めない ({e}): {text[:200]}"
+        # 先に JSON の掘り出しを試す。「Nothing to save. ではなく〜」と
+        # 書いてから JSON を出す応答があるので、平文判定より前に置く。
+        review = _extract_json_object(text)
+        if review is None:
+            if _says_nothing_to_save(text):
+                return {"action": "none", "reason": "Nothing to save."}, ""
+            return None, f"result が JSON として読めない ({e}): {text[:200]}"
     if not isinstance(review, dict):
         return None, f"result の JSON が object でない: {type(review).__name__}"
     return review, ""

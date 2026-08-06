@@ -62,9 +62,11 @@ ls -t ~/hermes-lite/skills-loop/state/runs/on-stop-*.json 2>/dev/null | head -1
 cat ~/hermes-lite/skills-loop/state/curator_state.json 2>/dev/null
 ```
 
-- Stop hook (`~/.claude/settings.json` の `Stop`) に `on-stop.sh` が登録されていなければ**異常**です。2026-07-29 に登録が外れ、誰も気づかないまま停止していた実績があります
-- `curator_state.json` の `on_stop_health` に `fail_rate` があれば見てください。`run_count` が 0 のときは「その期間に対話セッションが無かった」だけなので正常です。Stop hook は不定期トリガーなので、最終実行が古いこと自体は異常ではありません。**実行があったのに失敗率が高い場合だけ**報告してください
-- 管理対象 skill が 0 件のまま `curator` と `usage-tracker` が回り続けている状態が2週間以上続いていたら、生成側が機能していない可能性として報告してください
+- Stop hook (`~/.claude/settings.json` の `Stop`) から `on-stop.sh` は **2026-08-05 にユーザー判断で意図的に外しました**。登録が無いのが現在の正しい状態です。`state/runs/` が増えないこと、`curator_state.json` の `on_stop_health` が更新されないことも当然の帰結なので、**いずれも報告しないでください**（2026-07-29 に事故で外れた前例があるため以前は無条件で異常としていましたが、今の未登録は事故ではありません）
+- `on-stop.sh` が `Stop` に登録されていた場合は、誰かが再登録したということです。そのときだけ次を見てください
+  - `state/runs/` の最新が settings.json の更新時刻より古いままなら、登録したのに発火していない**異常**です
+  - `on_stop_health` の `fail_rate` は、`run_count` が 0 でない（＝実行があった）のに失敗率が高いときだけ報告してください。`run_count` が 0 は「その期間に対話セッションが無かった」だけで正常です
+- 管理対象 skill が 0 件のまま `curator` と `usage-tracker` が回り続けている状態が2週間以上続いていたら、生成側が機能していない可能性として報告してください。ただし上記のとおり生成側（Stop hook）は現在意図的に止めてあるので、**hook が登録されている期間についてだけ**この判定をしてください
 
 ### 4. 異常があれば深掘りする
 
