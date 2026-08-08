@@ -18,6 +18,34 @@ jobwatch status --no-color
 
 HEALTH 列が `失敗` `遅延` `不明` `未配線` のジョブを拾います。`OK` と `成否未判定` と `手動` は正常です。
 
+#### この実行環境でだけ出る誤検知（異常に数えない）
+
+次の 2 つは、あなたが `claude-agent@.service` の中で動いていることに由来する構造的な現象です。ジョブ側は壊れていません。**異常件数に含めず、報告本文にも書かないでください。**
+
+**(1) cron 系 4 件 (`curator` / `server-backup` / `tmux-gc` / `usage-tracker`) の `不明`**
+
+この unit は `NoNewPrivileges=true` で起動するため、setgid された `/usr/bin/crontab` が crontab グループ権限を落とされ、`crontab -l` が `crontabs/shohei/: fopen: Permission denied` になります（2026-08-08 に `systemd-run --user -p NoNewPrivileges=yes /usr/bin/crontab -l` で再現、NNP 無しの制御群では成功することも確認済み）。cron の設定そのものは正常で、**`sudo` でも root 権限でも直りません**。ホストのシェルから `jobwatch status` を叩けば 4 件とも `OK` と出ます。
+
+代わりに、各ジョブが書く成果物の鮮度で実行を確認してください。
+
+| ジョブ | 見るファイル | 期待間隔 |
+|---|---|---|
+| server-backup | `/home/shohei/server-backup/backup.log` | 毎日 03:00 |
+| tmux-gc | `/home/shohei/var/log/tmux-gc.log` | 毎日 04:00 |
+| usage-tracker | `~/hermes-lite/skills-loop/state/usage-tracker.log` | 毎日 02:30 |
+| curator | `~/hermes-lite/skills-loop/state/curator.log` | 毎週日曜 03:30 |
+
+```bash
+stat -c '%y %n' /home/shohei/server-backup/backup.log /home/shohei/var/log/tmux-gc.log \
+  ~/hermes-lite/skills-loop/state/usage-tracker.log ~/hermes-lite/skills-loop/state/curator.log
+```
+
+**更新が期待間隔の 2 倍以上古いものがあれば、そのジョブは実際に止まっている可能性があるので報告してください。** 鮮度が保たれているものは触れないでください。
+
+**(2) `jobwatch-review` 自身の `未配線`**
+
+自分に対応する service が実行中の間は次回発火時刻が未計算になり、自分を見ると `未配線` に見えます。この報告が届いている時点で timer は正しく発火しています。自己観測の構造的な現象なので報告不要です。**他のジョブの `未配線` は従来どおり毎回報告してください**（後述の「判断の指針」参照）。
+
 ### 2. 設定と実環境の差分を見る
 
 ```bash
@@ -122,8 +150,10 @@ cat ~/hermes-lite/skills-loop/state/curator_state.json 2>/dev/null
 - **`未配線` は宣言と実体の不一致です。猶予日数を置かず毎回報告してください。** `~/.config/jobwatch/jobs.conf` の `expect` が `wired`（既定）なのに timer 実体が無い状態を指します。意図的にスケジュールを持たせないジョブは `expect = manual`（手動実行専用）または `expect = disabled`（停止中、note に理由必須）と宣言でき、そう宣言すれば `手動` として表示され `未配線` には出ません。つまり `未配線` に残っているのは「宣言を直していない」か「本当に配線を忘れている」かのどちらかです
 - **未配線への対処は必ず二択で書いてください。** 「(a) タイマーを配線する」「(b) `jobs.conf` の `expect` を `manual`/`disabled` に変えて note に理由を書く」。どちらも選ばれていない状態を「様子見でよい」と書かないでください。goals-nudge は「未配線は必ずしも異常ではない、3日以上続いたら判断を促す」という以前の指針のもとで約1ヶ月放置され、週次通知が一度も届いていませんでした
 - **`未配線` には「前日と変わらないので省略」を適用しないでください。** 長く放置されている問題ほど繰り返し報告する価値があります
-- **`不明` は証跡が取れていない状態**です。`systemctl` が一時的に失敗しただけなら次回には直ります。続いているなら調べる価値があります。配線したばかりでまだ発火していないジョブもここに入ります
+- **`不明` は証跡が取れていない状態**です。`systemctl` が一時的に失敗しただけなら次回には直ります。続いているなら調べる価値があります。配線したばかりでまだ発火していないジョブもここに入ります。ただし cron 系 4 件の `不明` は手順 1 に書いた実行環境の制約なので、そちらの手順に従ってください
 - **`成否未判定` は正常です。** cron は終了コードを journal に残さないため、実行された事実までしか確認できません。これを異常として報告しないでください
 - 上記以外の項目は、状況が前日と変わっていないなら1行で済ませて詳細を省いてください。毎日同じ長文を送っても読まれません
 
 推測で原因を書かないでください。ログや設定で確認できたことだけを書き、分からないことは「原因は特定できていない」と正直に書いてください。
+
+**特に、権限エラーの原因をファイルの所有者やパーミッション値のせいにしないでください。** 2026-08-08 の報告は `crontab -l` の失敗を「`/var/spool/cron/crontabs` の所有者が root:crontab ではなく nobody:nogroup になっている」「root 権限が要る」と書きましたが、実際の所有者は `root:crontab`（mode 1730）で正常であり、原因は上記の `NoNewPrivileges` でした。誤った原因は、人に不要な root 作業をさせます。自分で `ls -l` して確かめていない所有者やパーミッションを報告に書かないでください。
