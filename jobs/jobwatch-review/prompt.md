@@ -20,31 +20,41 @@ HEALTH 列が `失敗` `遅延` `不明` `未配線` のジョブを拾います
 
 #### この実行環境でだけ出る誤検知（異常に数えない）
 
-次の 2 つは、あなたが `claude-agent@.service` の中で動いていることに由来する構造的な現象です。ジョブ側は壊れていません。**異常件数に含めず、報告本文にも書かないでください。**
+次の 2 つは、あなたが `claude-agent@.service` の中で動いていることに由来します。それぞれ**下記の条件を満たしたときだけ**異常件数から外してください。無条件に無視すると、本物の停止を見逃します。
 
 **(1) cron 系 4 件 (`curator` / `server-backup` / `tmux-gc` / `usage-tracker`) の `不明`**
 
-この unit は `NoNewPrivileges=true` で起動するため、setgid された `/usr/bin/crontab` が crontab グループ権限を落とされ、`crontab -l` が `crontabs/shohei/: fopen: Permission denied` になります（2026-08-08 に `systemd-run --user -p NoNewPrivileges=yes /usr/bin/crontab -l` で再現、NNP 無しの制御群では成功することも確認済み）。cron の設定そのものは正常で、**`sudo` でも root 権限でも直りません**。ホストのシェルから `jobwatch status` を叩けば 4 件とも `OK` と出ます。
+この unit は `NoNewPrivileges=true` で起動するため、setgid された `/usr/bin/crontab` が権限を得られず、`crontab -l` が `crontabs/shohei/: fopen: Permission denied` になります（2026-08-08 に NNP あり / なしの対照実験で確認済み）。`sudo` はこのジョブでは禁止されているので、ここから cron 設定を読む手段はありません。**これは cron の破損ではなく観測上の制約です。所有者や権限の変更を対処として提案しないでください。**
 
-代わりに、各ジョブが書く成果物の鮮度で実行を確認してください。
-
-| ジョブ | 見るファイル | 期待間隔 |
-|---|---|---|
-| server-backup | `/home/shohei/server-backup/backup.log` | 毎日 03:00 |
-| tmux-gc | `/home/shohei/var/log/tmux-gc.log` | 毎日 04:00 |
-| usage-tracker | `~/hermes-lite/skills-loop/state/usage-tracker.log` | 毎日 02:30 |
-| curator | `~/hermes-lite/skills-loop/state/curator.log` | 毎週日曜 03:30 |
+代わりに、各ジョブが書く成果物の更新時刻で実行を確認します。
 
 ```bash
 stat -c '%y %n' /home/shohei/server-backup/backup.log /home/shohei/var/log/tmux-gc.log \
   ~/hermes-lite/skills-loop/state/usage-tracker.log ~/hermes-lite/skills-loop/state/curator.log
 ```
 
-**更新が期待間隔の 2 倍以上古いものがあれば、そのジョブは実際に止まっている可能性があるので報告してください。** 鮮度が保たれているものは触れないでください。
+| ジョブ | 見るファイル | 実行時刻 |
+|---|---|---|
+| usage-tracker | `~/hermes-lite/skills-loop/state/usage-tracker.log` | 毎日 02:30 |
+| server-backup | `/home/shohei/server-backup/backup.log` | 毎日 03:00 |
+| tmux-gc | `/home/shohei/var/log/tmux-gc.log` | 毎日 04:00 |
+| curator | `~/hermes-lite/skills-loop/state/curator.log` | 毎週日曜 03:30 |
+
+**判定は「直近の予定発火時刻以後に更新されているか」で行ってください。** あなたが動くのは 08:00 なので、毎日実行の 3 件は当日の 02:30 / 03:00 / 04:00 以後、`curator` は今日が日曜なら当日 03:30 以後、他の曜日なら直前の日曜 03:30 以後が正常です。
+
+ファイルが無い、`stat` が失敗する、更新が直近の予定発火時刻より前 — このいずれかなら、**その回の実行を確認できなかった異常として報告してください。** jobwatch の `不明` としてではなく「成果物が更新されていない」として数えます。原因は当該ログの中身から探し、分からなければ「予定実行を確認できず、原因は未特定」と正直に書いてください。
+
+（「期待間隔の何倍」という緩い基準にはしないでください。毎日実行のジョブが 1 回落ちても翌朝まで、週次の `curator` に至っては次の日曜まで表に出ません。1 回の取りこぼしをその日のうちに出すために、予定時刻を基準にしています。）
 
 **(2) `jobwatch-review` 自身の `未配線`**
 
-自分に対応する service が実行中の間は次回発火時刻が未計算になり、自分を見ると `未配線` に見えます。この報告が届いている時点で timer は正しく発火しています。自己観測の構造的な現象なので報告不要です。**他のジョブの `未配線` は従来どおり毎回報告してください**（後述の「判断の指針」参照）。
+自分に対応する service が実行中の間は次回発火時刻が未計算になり、自分を見ると `未配線` に見えます。ただし**この報告が届いていること自体は timer が生きている証拠になりません**（手動起動でも報告は出ます）。除外してよいのは、次を実際に確認できたときだけです。
+
+```bash
+systemctl --user show claude-agent@jobwatch-review.timer -p LoadState -p UnitFileState -p ActiveState
+```
+
+`LoadState=loaded` / `UnitFileState=enabled` / `ActiveState=active` の 3 つが揃っていれば、次回発火時刻が未計算なだけなので報告不要です。**1 つでも欠けるか、確認自体ができなければ、他のジョブと同じ扱いで `未配線` として報告してください**（後述の「判断の指針」参照）。この除外を他のジョブの `未配線` に広げないでください。
 
 ### 2. 設定と実環境の差分を見る
 
@@ -156,4 +166,4 @@ cat ~/hermes-lite/skills-loop/state/curator_state.json 2>/dev/null
 
 推測で原因を書かないでください。ログや設定で確認できたことだけを書き、分からないことは「原因は特定できていない」と正直に書いてください。
 
-**特に、権限エラーの原因をファイルの所有者やパーミッション値のせいにしないでください。** 2026-08-08 の報告は `crontab -l` の失敗を「`/var/spool/cron/crontabs` の所有者が root:crontab ではなく nobody:nogroup になっている」「root 権限が要る」と書きましたが、実際の所有者は `root:crontab`（mode 1730）で正常であり、原因は上記の `NoNewPrivileges` でした。誤った原因は、人に不要な root 作業をさせます。自分で `ls -l` して確かめていない所有者やパーミッションを報告に書かないでください。
+**特に、権限エラーの原因を推測で書かないでください。** 所有者やパーミッション値を原因として挙げてよいのは、そのパスを実際に `ls -l` で確認し、期待値との差を証拠として示せるときだけです。2026-08-08 の報告は `crontab -l` の失敗を「`/var/spool/cron/crontabs` の所有者が nobody:nogroup になっている」「root 権限が要る」と書きましたが、実際の所有者は `root:crontab`（mode 1730）で正常でした。確認していない原因を書くと、人に不要な root 作業をさせます。
